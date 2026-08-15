@@ -28,6 +28,18 @@ A deployable Next.js study companion with three explicitly separate libraries: S
 
 **Status: LOCKED.** Author only fresh clinical scenarios from verified concepts; never copy commercial stems, answer options, diagrams, or rationales.
 
+## Architecture decision — private custom flashcards — 2026-08-16
+
+**Data model.** A `CustomFlashcard` has a unique id, a required track (`SNLE`, `PNLE`, or `USRN`), a learner-written front and back, creation date, next due date, review count, and interval in days. Cards are stored under their own browser key, `nurse-quest-custom-flashcards-v1`, separate from progress, saved rounds, and XP. Malformed stored cards are ignored safely.
+
+**Service boundary.** This is a private, browser-only Anki-inspired deck. It needs no account, API, database, or backend deployment. Cards never leave the learner’s browser and are never bundled into the static site.
+
+**Review behavior and failure handling.** A new card is due immediately. “Again” schedules it for ten minutes; “Got it” schedules one day on the first success and doubles the interval afterward, capped at 30 days. Empty front/back fields are rejected. If browser storage is full or unavailable, the card remains usable for the current visit and the app explains that it cannot be retained after leaving. Multiple tabs follow normal browser last-write-wins behavior.
+
+**Rollback.** Reverting the UI leaves the local browser key harmlessly unused. No migration, external write, or feature flag is required.
+
+**Status: LOCKED.** Re-run the architecture review before adding accounts, cloud sync, shared decks, file imports, or AI card generation.
+
 ## Content guardrails
 
 - Question stems and rationales are original learning material, not official exam items.

@@ -84,6 +84,30 @@ test('Practice opens a three-library chooser before any question', async ({ page
   await expect(page.locator('.question-title')).toBeVisible();
 });
 
+test('learner can make, review, retain, and keep private flashcards separated by library', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Flashcards' }).click();
+  await page.getByLabel('Front of card').fill('What should I check before a first-dose medication?');
+  await page.getByLabel('Back of card').fill('Confirm the order, allergy status, identity, and safe administration checks.');
+  await page.getByRole('button', { name: /Add to my SNLE deck/i }).click();
+
+  const myCard = page.locator('.custom-flashcard').filter({ hasText: 'What should I check before a first-dose medication?' });
+  await expect(myCard).toBeVisible();
+  await myCard.locator('.flashcard').click();
+  await expect(myCard.getByText('Your answer / note')).toBeVisible();
+  await myCard.getByRole('button', { name: /Got it/i }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nurse-quest-custom-flashcards-v1') || '[]')[0]?.intervalDays)).toBe(1);
+
+  await page.reload();
+  await page.getByRole('button', { name: 'Flashcards' }).click();
+  await expect(page.getByText('What should I check before a first-dose medication?')).toBeVisible();
+  await page.getByRole('button', { name: 'Overview' }).click();
+  await page.getByRole('button', { name: /PNLE · Philippines.*20 original/i }).click();
+  await page.getByRole('button', { name: 'Flashcards' }).click();
+  await expect(page.getByText('Your first card can live here.')).toBeVisible();
+  await expect(page.getByText('What should I check before a first-dose medication?')).not.toBeVisible();
+});
+
 test('practice keeps serving new question scenarios after four answers', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('snle-study-compass-player-v1', JSON.stringify({
