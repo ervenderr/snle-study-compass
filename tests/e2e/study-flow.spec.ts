@@ -49,7 +49,7 @@ test('learner can practise, reveal a rationale, continue, and review a flashcard
 
 test('the learner can choose an entirely separate PNLE library', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: /PNLE · Philippines.*80 original/i }).click();
+  await page.getByRole('button', { name: /PNLE · Philippines.*30 distinct/i }).click();
   await page.getByRole('button', { name: /Play a new round/i }).click();
   await expect(page.locator('#exam-track')).toHaveValue('PNLE');
   await expect(page.locator('.tag')).toContainText('PNLE');
@@ -62,7 +62,7 @@ test('the learner can choose an entirely separate PNLE library', async ({ page }
 
 test('the learner can choose the separate USRN 2026 library', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: /USRN · NCLEX-RN 2026.*160 original/i }).click();
+  await page.getByRole('button', { name: /USRN · NCLEX-RN 2026.*60 distinct/i }).click();
   await page.getByRole('button', { name: /Play a new round/i }).click();
   await expect(page.locator('#exam-track')).toHaveValue('USRN');
   await expect(page.locator('.tag')).toContainText('USRN');
@@ -82,6 +82,32 @@ test('Practice opens a three-library chooser before any question', async ({ page
   await page.getByRole('button', { name: /Start USRN practice/i }).click();
   await expect(page.locator('.tag')).toContainText('USRN');
   await expect(page.locator('.question-title')).toBeVisible();
+});
+
+test('practice keeps serving new question scenarios after four answers', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('snle-study-compass-player-v1', JSON.stringify({
+      SNLE: { xp: 0, streak: 0, bestStreak: 0, correct: 1, unlocked: ['spark'] },
+      PNLE: { xp: 0, streak: 0, bestStreak: 0, correct: 1, unlocked: ['spark'] },
+      USRN: { xp: 0, streak: 0, bestStreak: 0, correct: 1, unlocked: ['spark'] },
+    }));
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Practice', exact: true }).click();
+  await page.getByRole('button', { name: /Start USRN practice/i }).click();
+  const filters = page.getByRole('button', { name: 'Filters' });
+  if (await filters.isVisible()) await filters.click();
+  await page.locator('#mode').selectOption('All scenario forms');
+  await page.evaluate(() => { Math.random = () => 0; });
+
+  const stems: string[] = [];
+  for (let index = 0; index < 5; index += 1) {
+    stems.push(await page.locator('.question-title').innerText());
+    await page.locator('.answer-btn').first().click();
+    if (index < 4) await page.getByRole('button', { name: /Next question/i }).click();
+  }
+
+  expect(new Set(stems).size).toBe(5);
 });
 
 test('a correct answer earns a shareable reward', async ({ page }) => {

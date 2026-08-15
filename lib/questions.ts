@@ -56,14 +56,7 @@ const questionTail = (stem: string) => /\?$/.test(stem.trim()) ? '' : ' What is 
 function expandTemplates(raw: RawTemplate[], track: StudyTrack, getDomain: (topic: string) => LibraryDomain): Question[] {
   return raw.flatMap((template) => {
     const contexts = template.scenarioVariants || template.variants || [];
-    const alternateWordings = [
-      `Choose the one best nursing response. ${template.stem}`,
-      `Clinical-priority check: ${template.stem}`,
-      `Safety-first scenario: ${template.stem}`,
-      `Read the cues, then select the most appropriate action. ${template.stem}`,
-      ...(track === 'SNLE' ? [] : [`Clinical-judgment practice: identify the priority response. ${template.stem}`]),
-    ];
-    return [template.stem, ...contexts, ...alternateWordings].map((stem, index) => ({
+    return [template.stem, ...contexts].map((stem, index) => ({
       id: `${template.id}-${index}`,
       templateId: template.id,
       track,

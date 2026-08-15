@@ -8,19 +8,21 @@ const { PNLE_TEMPLATES } = await import(new URL('../content-pnle.js', import.met
 const { USRN_TEMPLATES } = await import(new URL('../content-usrn.js', import.meta.url));
 const templates = [...FUNDAMENTALS_ADULT_TEMPLATES, ...MATERNAL_CHILD_LEADERSHIP_TEMPLATES];
 const domainFor = (topic) => topic.startsWith('Fundamentals') ? 'Fundamentals' : topic.startsWith('Adult Nursing') ? 'Adult Nursing' : /^(Maternity|Intrapartum|Postpartum|Newborn|Pediatrics)/.test(topic) ? 'Maternal–Child' : 'Management & Leadership';
-const questions = templates.flatMap(template => {
-  const alternateWordings = [`Choose the one best nursing response. ${template.stem}`, `Clinical-priority check: ${template.stem}`, `Safety-first scenario: ${template.stem}`, `Read the cues, then select the most appropriate action. ${template.stem}`];
-  return [template.stem, ...(template.scenarioVariants || template.variants || []), ...alternateWordings].map((stem, index) => ({ ...template, id: `${template.id}-${index}`, domain: domainFor(template.topic), stem: index && index < 4 ? `${stem}${stem.endsWith('?') ? '' : ' What is the nurse’s best action?'}` : stem }));
-});
+const scenarioForms = templates => templates.flatMap(template => [template.stem, ...(template.scenarioVariants || template.variants || [])]);
+const normalizeStem = stem => stem.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+const questions = templates.flatMap(template => scenarioForms([template]).map((stem, index) => ({ ...template, id: `${template.id}-${index}`, domain: domainFor(template.topic), stem: index ? `${stem}${stem.endsWith('?') ? '' : ' What is the nurse’s best action?'}` : stem })));
 
 assert.equal(templates.length, 40, 'the source bank should have 40 original competency templates');
-assert.equal(questions.length, 320, 'every template should supply eight core scenario forms');
+assert.equal(questions.length, 160, 'every SNLE form should be a distinct clinical scenario');
 assert.equal(new Set(questions.map(q => q.id)).size, questions.length, 'scenario form IDs must be unique');
+assert.equal(new Set(questions.map(q => normalizeStem(q.stem))).size, questions.length, 'SNLE scenarios must not be redundant rewordings');
 assert.equal(PNLE_TEMPLATES.length, 10, 'the PNLE source bank should have original templates across all five Nursing Practice areas');
-assert.equal(PNLE_TEMPLATES.length * 8, 80, 'every PNLE template should supply eight core scenario forms');
+assert.equal(scenarioForms(PNLE_TEMPLATES).length, 30, 'PNLE should include only distinct clinical scenarios');
+assert.equal(new Set(scenarioForms(PNLE_TEMPLATES).map(normalizeStem)).size, 30, 'PNLE scenarios must not be redundant rewordings');
 assert.deepEqual(new Set(PNLE_TEMPLATES.map(template => template.id.split('-').slice(0, 2).join('-'))), new Set(['PNLE-I', 'PNLE-II', 'PNLE-III', 'PNLE-IV', 'PNLE-V']), 'PNLE templates must cover each Nursing Practice area');
 assert.equal(USRN_TEMPLATES.length, 20, 'the USRN source bank should have original templates');
-assert.equal(USRN_TEMPLATES.length * 8, 160, 'every USRN template should supply eight core scenario forms');
+assert.equal(scenarioForms(USRN_TEMPLATES).length, 60, 'USRN should include only distinct clinical scenarios');
+assert.equal(new Set(scenarioForms(USRN_TEMPLATES).map(normalizeStem)).size, 60, 'USRN scenarios must not be redundant rewordings');
 assert.deepEqual(new Set(USRN_TEMPLATES.map(template => template.topic.split(' — ')[0])), new Set(['Management of Care', 'Safety and Infection Control', 'Health Promotion and Maintenance', 'Psychosocial Integrity', 'Basic Care and Comfort', 'Pharmacological and Parenteral Therapies', 'Reduction of Risk Potential', 'Physiological Adaptation']), 'USRN templates must cover every 2026 NCLEX-RN Client Needs domain');
 
 for (const q of questions) {
@@ -52,4 +54,4 @@ for (const requiredFeature of ['Random topics', 'Reveal answer', 'Next question'
   assert.ok(appSource.includes(requiredFeature), `UI source must include ${requiredFeature}`);
 }
 
-console.log(`PASS: SNLE ${templates.length} templates / ${questions.length} forms; PNLE ${PNLE_TEMPLATES.length} templates / ${PNLE_TEMPLATES.length * 8} forms; USRN ${USRN_TEMPLATES.length} templates / ${USRN_TEMPLATES.length * 8} forms; valid MCQ/rationale structure, separated libraries, blueprint balance, and required UI flows.`);
+console.log(`PASS: SNLE ${templates.length} templates / ${questions.length} distinct scenarios; PNLE ${PNLE_TEMPLATES.length} templates / ${scenarioForms(PNLE_TEMPLATES).length} distinct scenarios; USRN ${USRN_TEMPLATES.length} templates / ${scenarioForms(USRN_TEMPLATES).length} distinct scenarios; valid MCQ/rationale structure, separated libraries, blueprint balance, and required UI flows.`);
