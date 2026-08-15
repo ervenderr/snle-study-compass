@@ -9,3 +9,4 @@ playwright-report/
 
 # Private third-party study material: retain locally, never commit or deploy.
 snle-mock-exam-part-*.md
+snle-mock-exam-part-*.html
