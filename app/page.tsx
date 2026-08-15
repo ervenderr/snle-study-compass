@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { domainReferences, domainsForTrack, questions, type LibraryDomain, type Question } from '../lib/questions';
 import { studyResources, type StudyTrack } from '../lib/resources';
 
-type View = 'home' | 'study' | 'flashcards' | 'rewards' | 'resources';
+type View = 'home' | 'practiceSetup' | 'study' | 'flashcards' | 'rewards' | 'resources';
 type Mode = 'Random topics' | 'Fresh in selection' | 'All scenario forms' | 'Review incorrect';
 type StudyRecord = { correct: boolean; selected: number; answeredAt: string; alternate: boolean };
 type Progress = Record<string, StudyRecord>;
@@ -169,7 +169,7 @@ export default function StudyCompass() {
     <button className="brand" onClick={() => navigate('home')} aria-label="Nurse Quest home"><span className="mark">N</span> Nurse Quest</button>
     <div className="nav-actions">
       <button className={`nav-link ${active === 'home' ? 'active' : ''}`} onClick={() => navigate('home')}>Overview</button>
-      <button className={`nav-link ${active === 'study' ? 'active' : ''}`} onClick={() => navigate('study')}>Practice</button>
+      <button className={`nav-link ${active === 'study' || active === 'practiceSetup' ? 'active' : ''}`} onClick={() => navigate('practiceSetup')}>Practice</button>
       <button className={`nav-link ${active === 'flashcards' ? 'active' : ''}`} onClick={() => navigate('flashcards')}>Flashcards</button>
       <button className={`nav-link ${active === 'rewards' ? 'active' : ''}`} onClick={() => navigate('rewards')}>Rewards</button>
       <button className={`nav-link ${active === 'resources' ? 'active' : ''}`} onClick={() => openTrack(examTrack)}>Library</button>
@@ -195,6 +195,11 @@ export default function StudyCompass() {
     <div className="section-head"><div><p className="eyebrow">{trackLabel} · Fast active recall</p><h2>Flashcards for clinical anchors</h2></div><div className="field" style={{ minWidth: 190, margin: 0 }}><label htmlFor="flash-domain">Focus domain</label><select id="flash-domain" value={domain} onChange={event => setDomain(event.target.value as LibraryDomain | 'All domains')}><option>All domains</option>{activeDomains.map(item => <option key={item.name}>{item.name}</option>)}</select></div></div>
     <p className="card-note">Only {examTrack} cards are shown. Tap a card to reveal the key action and why it matters.</p>
     <div className="flash-grid">{flashcards.map(question => <button className={`flashcard ${flipped.has(question.id) ? 'flipped' : ''}`} key={question.id} onClick={() => setFlipped(previous => { const next = new Set(previous); next.has(question.id) ? next.delete(question.id) : next.add(question.id); return next; })}><span className="front">{question.topic}</span><h3>{question.stem}</h3><p className="front">Tap to reveal</p><div className="back"><span className="back-label">Best response</span><h3>{question.choices[question.correctIndex]}</h3><p>{question.rationale}</p></div></button>)}</div>
+  </section></main>;
+
+  if (view === 'practiceSetup') return <main className="shell">{header('practiceSetup')}<section className="section practice-setup" style={{ marginTop: 0 }}>
+    <p className="eyebrow">Practice first step</p><h1 className="page-title">Which exam are we<br />playing today?</h1><p className="hero-copy">Pick one library. Its first question will open right away, with only that exam’s progress and rewards.</p>
+    <div className="practice-library-grid"><button className="practice-library-card snle-card" onClick={() => selectTrack('SNLE', true)}><span>🇸🇦</span><small>SAUDI ARABIA</small><h2>SNLE</h2><p>320 original scenario forms</p><b>Start SNLE practice →</b></button><button className="practice-library-card pnle-card" onClick={() => selectTrack('PNLE', true)}><span>🇵🇭</span><small>PHILIPPINES</small><h2>PNLE</h2><p>80 original scenario forms</p><b>Start PNLE practice →</b></button><button className="practice-library-card usrn-card" onClick={() => selectTrack('USRN', true)}><span>🇺🇸</span><small>UNITED STATES</small><h2>USRN 2026</h2><p>160 original NCLEX-RN forms</p><b>Start USRN practice →</b></button></div>
   </section></main>;
 
   if (view === 'study') return <main className="shell">{header('study')}<div className="study-layout">

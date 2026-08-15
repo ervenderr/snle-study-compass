@@ -72,6 +72,18 @@ test('the learner can choose the separate USRN 2026 library', async ({ page }) =
   await expect(page.locator('#domain')).toContainText('Physiological Adaptation');
 });
 
+test('Practice opens a three-library chooser before any question', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Practice', exact: true }).click();
+  await expect(page.getByRole('heading', { name: /Which exam are we/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Start SNLE practice/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Start PNLE practice/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Start USRN practice/i })).toBeVisible();
+  await page.getByRole('button', { name: /Start USRN practice/i }).click();
+  await expect(page.locator('.tag')).toContainText('USRN');
+  await expect(page.locator('.question-title')).toBeVisible();
+});
+
 test('a correct answer earns a shareable reward', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: /Play a new round/i }).click();
