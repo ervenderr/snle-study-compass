@@ -2,7 +2,9 @@ import { FUNDAMENTALS_ADULT_TEMPLATES } from '../content-fundamentals-adult';
 import { MATERNAL_CHILD_LEADERSHIP_TEMPLATES } from '../content-maternal-child-leadership';
 import { SNLE_EXPANSION_TEMPLATES } from '../content-snle-expansion';
 import { PNLE_TEMPLATES } from '../content-pnle';
+import { PNLE_EXPANSION_TEMPLATES } from '../content-pnle-expansion';
 import { USRN_TEMPLATES } from '../content-usrn';
+import { USRN_EXPANSION_TEMPLATES } from '../content-usrn-expansion';
 import type { StudyTrack } from './resources';
 
 export type Domain = 'Fundamentals' | 'Adult Nursing' | 'Maternal–Child' | 'Management & Leadership';
@@ -32,8 +34,8 @@ type RawTemplate = Omit<Question, 'domain' | 'templateId' | 'track' | 'variantNu
 export type DomainInfo = { name: LibraryDomain; target: string; summary: string };
 
 const snleRaw = [...FUNDAMENTALS_ADULT_TEMPLATES, ...MATERNAL_CHILD_LEADERSHIP_TEMPLATES, ...SNLE_EXPANSION_TEMPLATES] as RawTemplate[];
-const pnleRaw = PNLE_TEMPLATES as RawTemplate[];
-const usrnRaw = USRN_TEMPLATES as RawTemplate[];
+const pnleRaw = [...PNLE_TEMPLATES, ...PNLE_EXPANSION_TEMPLATES] as RawTemplate[];
+const usrnRaw = [...USRN_TEMPLATES, ...USRN_EXPANSION_TEMPLATES] as RawTemplate[];
 
 const snleDomainFor = (topic: string): Domain => {
   if (topic.startsWith('Fundamentals')) return 'Fundamentals';
@@ -43,7 +45,7 @@ const snleDomainFor = (topic: string): Domain => {
 };
 
 const pnleDomainFor = (topic: string): PnleDomain => {
-  const match = topic.match(/^Nursing Practice (I{1,3}|IV|V)/);
+  const match = topic.match(/^Nursing Practice (IV|V|I{1,3})/);
   return `Nursing Practice ${match?.[1] || 'I'}` as PnleDomain;
 };
 
