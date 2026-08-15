@@ -1,12 +1,12 @@
-# SNLE Study Compass
+# Nurse Quest
 
-A deployable Next.js study companion for the Saudi Nursing Licensure Examination (SNLE). It is intentionally built around original questions and clinical competency templates—not copied exam or commercial-reviewer material.
+A deployable Next.js study companion with two explicitly separate libraries: Saudi Nursing Licensure Examination (SNLE) and Philippine Nurse Licensure Examination (PNLE). It is intentionally built around original questions and clinical competency templates—not copied exam or commercial-reviewer material.
 
-## Architecture decision — Next.js conversion — 2026-08-15
+## Architecture decision — separate SNLE and PNLE libraries — 2026-08-15
 
-**Data model.** `QuestionTemplate` contains a single tested competency, four choices, one defensible answer, a teaching rationale, category metadata, and several controlled clinical contexts. A `QuestionVariant` is generated from one template plus one context. `StudyRecord` is persisted in browser `localStorage` and records answer, timestamp, and alternate-form state by variant id. `SavedSession` stores the in-progress question and selected study filters, so a learner can resume after closing the browser. `Player` stores XP, correct-answer streaks, and one-time rewards; it is motivational study feedback, not an exam credential.
+**Data model.** `QuestionTemplate` contains a single tested competency, four choices, one defensible answer, a teaching rationale, category metadata, and several controlled clinical contexts. A `QuestionVariant` is generated from one template plus one context. Every question has a required `track` (`SNLE` or `PNLE`) and is selected only from the active track. `StudyRecord` is persisted in browser `localStorage` by unique question id; `SavedSession` includes its track; and `Players` keeps XP, streaks, and rewards independently per country. The existing single-player storage shape safely migrates to the SNLE player on the next load.
 
-**Service boundary.** Next.js 16 App Router supplies the application structure; the study dashboard is a client component because it uses browser storage and immediate answer feedback. The project uses `output: 'export'`, so it deploys as static optimized files to Vercel or any static host. The Resource Library links to official exam blueprints and legitimate publishers/providers but never imports or reproduces their protected items. The PNLE resource track remains separate from the Saudi-specific SNLE bank. No account, server, analytics, or external API is required today.
+**Service boundary.** Next.js 16 App Router supplies the application structure; the study dashboard is a client component because it uses browser storage and immediate answer feedback. The project uses `output: 'export'`, so it deploys as static optimized files to Vercel or any static host. The Resource Library links to official exam blueprints and legitimate publishers/providers but never imports or reproduces their protected items. No account, server, analytics, or external API is required today.
 
 **Failure handling.** Invalid stored progress or a malformed saved session is ignored; unavailable local storage degrades to a session-only study flow; empty filters fall back to the full bank. Answer state is locked after a choice, preventing a second score for the same variant.
 
@@ -19,7 +19,8 @@ A deployable Next.js study companion for the Saudi Nursing Licensure Examination
 ## Content guardrails
 
 - Question stems and rationales are original learning material, not official exam items.
-- The target weighting follows the SCFHS SNLE blueprint: Fundamentals 20%, Adult Nursing 40%, Maternal–Child Nursing 30%, Management & Leadership 10% (allowing the SCFHS stated variation).
+- SNLE forms follow the SCFHS blueprint target: Fundamentals 20%, Adult Nursing 40%, Maternal–Child Nursing 30%, Management & Leadership 10% (allowing the SCFHS stated variation).
+- PNLE forms are organized separately under the PRC’s five Nursing Practice areas. Selecting PNLE cannot draw a Saudi item, and selecting SNLE cannot draw a Philippine item.
 - Study material supports revision only and does not replace local policy, clinical supervision, or current professional guidance.
 
 ## Run locally

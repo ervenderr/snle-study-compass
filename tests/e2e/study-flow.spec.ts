@@ -39,8 +39,22 @@ test('learner can practise, reveal a rationale, continue, and review a flashcard
   await expect(page.getByText('Every answer is', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Library' }).click();
   await page.getByRole('button', { name: /PNLE · Philippines/i }).click();
-  await expect(page.getByText('PNLE is kept separate on purpose.')).toBeVisible();
+  await expect(page.getByText('PNLE question library—separate by design.')).toBeVisible();
+  await page.getByRole('button', { name: /Open PNLE question library/i }).click();
+  await expect(page.locator('.tag')).toContainText('PNLE');
+  await expect(page.locator('.tag')).not.toContainText('SNLE');
   expect(pageErrors).toEqual([]);
+});
+
+test('the learner can choose an entirely separate PNLE library', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /PNLE · Philippines.*80 original/i }).click();
+  await page.getByRole('button', { name: /Play a new round/i }).click();
+  await expect(page.locator('#exam-track')).toHaveValue('PNLE');
+  await expect(page.locator('.tag')).toContainText('PNLE');
+  await expect(page.locator('.question-title')).not.toContainText('Saudi');
+  await page.locator('#exam-track').selectOption('SNLE');
+  await expect(page.locator('.tag')).toContainText('SNLE');
 });
 
 test('a correct answer earns a shareable reward', async ({ page }) => {
