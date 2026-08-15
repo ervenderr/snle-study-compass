@@ -58,7 +58,7 @@ export const USRN_TEMPLATES = [
   {
     id: "USRN-004",
     topic: "Safety and Infection Control — Contact-enteric precautions",
-    stem: "A client has frequent watery stools and a confirmed enteric infection requiring contact-enteric precautions. Which action is most important when leaving the room?",
+    stem: "During a facility outbreak of confirmed C. difficile infection, a nurse removes gloves after providing care. Which hand-hygiene action is most appropriate when leaving the room?",
     choices: [
       "Perform hand hygiene with soap and water after removing gloves",
       "Use alcohol-based hand rub only after removing gloves",
@@ -66,10 +66,10 @@ export const USRN_TEMPLATES = [
       "Place used linens in the regular trash bin"
     ],
     correctIndex: 0,
-    rationale: "For organisms that form spores, soap-and-water handwashing after glove removal is a key control measure. Gloves and gown are used as indicated, and handling of linens and cleaning follow facility infection-prevention policy.",
+    rationale: "For care during a C. difficile outbreak, soap-and-water handwashing after glove removal is recommended because it helps remove spores. Gloves and gown are also used as indicated, and linen handling and environmental cleaning follow facility infection-prevention policy.",
     scenarioVariants: [
-      "After cleaning a stool-contaminated bedside commode, the nurse prepares to leave the isolation room.",
-      "A nurse removes gloves after providing incontinent care to a client on enteric precautions."
+      "During a C. difficile outbreak, a nurse cleans a stool-contaminated bedside commode and prepares to leave the isolation room.",
+      "During a C. difficile outbreak, a nurse removes gloves after providing incontinent care to an isolated client."
     ]
   },
   {
