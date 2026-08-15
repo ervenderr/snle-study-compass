@@ -1,7 +1,7 @@
 import { FUNDAMENTALS_ADULT_TEMPLATES } from '../content-fundamentals-adult';
 import { MATERNAL_CHILD_LEADERSHIP_TEMPLATES } from '../content-maternal-child-leadership';
 import { SNLE_EXPANSION_TEMPLATES } from '../content-snle-expansion';
-import { DOCTOR18_SNLE_MOCK_EXAM_TEMPLATES, SNLE_MOCK_EXAM_PART_1_READABLE_TEMPLATES, SNLE_MOCK_EXAM_PART_2_READABLE_TEMPLATES } from '../content-snle-practice-sets';
+import { PROMETRIC_1_TEMPLATES, PROMETRIC_2_TEMPLATES, SNLE_MOCK_EXAM_PART_1_READABLE_TEMPLATES, SNLE_MOCK_EXAM_PART_2_READABLE_TEMPLATES } from '../content-snle-practice-sets';
 import { PNLE_TEMPLATES } from '../content-pnle';
 import { PNLE_EXPANSION_TEMPLATES } from '../content-pnle-expansion';
 import { USRN_TEMPLATES } from '../content-usrn';
@@ -12,14 +12,15 @@ export type Domain = 'Fundamentals' | 'Adult Nursing' | 'Maternal–Child' | 'Ma
 export type PnleDomain = 'Nursing Practice I' | 'Nursing Practice II' | 'Nursing Practice III' | 'Nursing Practice IV' | 'Nursing Practice V';
 export type UsrnDomain = 'Management of Care' | 'Safety and Infection Control' | 'Health Promotion and Maintenance' | 'Psychosocial Integrity' | 'Basic Care and Comfort' | 'Pharmacological and Parenteral Therapies' | 'Reduction of Risk Potential' | 'Physiological Adaptation';
 export type LibraryDomain = Domain | PnleDomain | UsrnDomain;
-export type SnleQuestionSetId = 'nurse-quest-originals' | 'doctor18-snle-mock-exam' | 'snle-mock-exam-part-1-readable' | 'snle-mock-exam-part-2-readable';
+export type SnleQuestionSetId = 'nurse-quest-originals' | 'snle-mock-exam-part-1' | 'snle-mock-exam-part-2' | 'prometric-1' | 'prometric-2';
 export type SnleQuestionSet = { id: SnleQuestionSetId; label: string; description: string };
 
 export const snleQuestionSets: SnleQuestionSet[] = [
   { id: 'nurse-quest-originals', label: 'Nurse Quest originals', description: 'The complete original Nurse Quest SNLE bank.' },
-  { id: 'doctor18-snle-mock-exam', label: 'Doctor18 SNLE Mock Exam', description: 'Fresh original teaching scenarios for this practice set.' },
-  { id: 'snle-mock-exam-part-1-readable', label: 'snle-mock-exam-part-1-readable.md', description: 'Fresh original teaching scenarios for this practice set.' },
-  { id: 'snle-mock-exam-part-2-readable', label: 'snle-mock-exam-part-2-readable.md', description: 'Fresh original teaching scenarios for this practice set.' },
+  { id: 'snle-mock-exam-part-1', label: 'SNLE Mock Exam Part 1', description: 'Fresh original teaching scenarios for this practice set.' },
+  { id: 'snle-mock-exam-part-2', label: 'SNLE Mock Exam Part 2', description: 'Fresh original teaching scenarios for this practice set.' },
+  { id: 'prometric-1', label: 'Prometric 1', description: 'Fresh original teaching scenarios for this practice set.' },
+  { id: 'prometric-2', label: 'Prometric 2', description: 'Fresh original teaching scenarios for this practice set.' },
 ];
 
 export type Question = {
@@ -89,9 +90,10 @@ function expandTemplates(raw: RawTemplate[], track: StudyTrack, getDomain: (topi
 
 export const snleQuestions = [
   ...expandTemplates(snleRaw, 'SNLE', snleDomainFor, 'nurse-quest-originals'),
-  ...expandTemplates(DOCTOR18_SNLE_MOCK_EXAM_TEMPLATES as RawTemplate[], 'SNLE', snleDomainFor, 'doctor18-snle-mock-exam'),
-  ...expandTemplates(SNLE_MOCK_EXAM_PART_1_READABLE_TEMPLATES as RawTemplate[], 'SNLE', snleDomainFor, 'snle-mock-exam-part-1-readable'),
-  ...expandTemplates(SNLE_MOCK_EXAM_PART_2_READABLE_TEMPLATES as RawTemplate[], 'SNLE', snleDomainFor, 'snle-mock-exam-part-2-readable'),
+  ...expandTemplates(SNLE_MOCK_EXAM_PART_1_READABLE_TEMPLATES as RawTemplate[], 'SNLE', snleDomainFor, 'snle-mock-exam-part-1'),
+  ...expandTemplates(SNLE_MOCK_EXAM_PART_2_READABLE_TEMPLATES as RawTemplate[], 'SNLE', snleDomainFor, 'snle-mock-exam-part-2'),
+  ...expandTemplates(PROMETRIC_1_TEMPLATES as RawTemplate[], 'SNLE', snleDomainFor, 'prometric-1'),
+  ...expandTemplates(PROMETRIC_2_TEMPLATES as RawTemplate[], 'SNLE', snleDomainFor, 'prometric-2'),
 ];
 export const pnleQuestions = expandTemplates(pnleRaw, 'PNLE', pnleDomainFor);
 export const usrnQuestions = expandTemplates(usrnRaw, 'USRN', usrnDomainFor);

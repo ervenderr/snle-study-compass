@@ -93,12 +93,13 @@ test('SNLE practice opens a set chooser and keeps the four-choice flow', async (
   await page.getByRole('button', { name: 'Practice', exact: true }).click();
   await page.getByRole('button', { name: /Choose an SNLE set/i }).click();
   await expect(page.getByRole('heading', { name: /Which SNLE set/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Doctor18 SNLE Mock Exam/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /snle-mock-exam-part-1-readable\.md/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /snle-mock-exam-part-2-readable\.md/i })).toBeVisible();
-  await page.getByRole('button', { name: /Doctor18 SNLE Mock Exam/i }).click();
+  await expect(page.getByRole('button', { name: /SNLE Mock Exam Part 1/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /SNLE Mock Exam Part 2/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Prometric 1/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Prometric 2/i })).toBeVisible();
+  await page.getByRole('button', { name: /Prometric 1/i }).click();
   await expect(page.locator('#exam-track')).toHaveValue('SNLE');
-  await expect(page.locator('#snle-question-set')).toHaveValue('doctor18-snle-mock-exam');
+  await expect(page.locator('#snle-question-set')).toHaveValue('prometric-1');
   await expect(page.locator('.answer-btn')).toHaveCount(4);
 });
 

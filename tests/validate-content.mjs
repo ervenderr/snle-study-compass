@@ -5,16 +5,17 @@ const source = async (file) => readFile(new URL(`../${file}`, import.meta.url), 
 const { FUNDAMENTALS_ADULT_TEMPLATES } = await import(new URL('../content-fundamentals-adult.js', import.meta.url));
 const { MATERNAL_CHILD_LEADERSHIP_TEMPLATES } = await import(new URL('../content-maternal-child-leadership.js', import.meta.url));
 const { SNLE_EXPANSION_TEMPLATES } = await import(new URL('../content-snle-expansion.js', import.meta.url));
-const { DOCTOR18_SNLE_MOCK_EXAM_TEMPLATES, SNLE_MOCK_EXAM_PART_1_READABLE_TEMPLATES, SNLE_MOCK_EXAM_PART_2_READABLE_TEMPLATES } = await import(new URL('../content-snle-practice-sets.js', import.meta.url));
+const { PROMETRIC_1_TEMPLATES, PROMETRIC_2_TEMPLATES, SNLE_MOCK_EXAM_PART_1_READABLE_TEMPLATES, SNLE_MOCK_EXAM_PART_2_READABLE_TEMPLATES } = await import(new URL('../content-snle-practice-sets.js', import.meta.url));
 const { PNLE_TEMPLATES } = await import(new URL('../content-pnle.js', import.meta.url));
 const { PNLE_EXPANSION_TEMPLATES } = await import(new URL('../content-pnle-expansion.js', import.meta.url));
 const { USRN_TEMPLATES } = await import(new URL('../content-usrn.js', import.meta.url));
 const { USRN_EXPANSION_TEMPLATES } = await import(new URL('../content-usrn-expansion.js', import.meta.url));
 const templates = [...FUNDAMENTALS_ADULT_TEMPLATES, ...MATERNAL_CHILD_LEADERSHIP_TEMPLATES, ...SNLE_EXPANSION_TEMPLATES];
 const namedSnleSets = [
-  ['Doctor18 SNLE Mock Exam', DOCTOR18_SNLE_MOCK_EXAM_TEMPLATES],
-  ['snle-mock-exam-part-1-readable', SNLE_MOCK_EXAM_PART_1_READABLE_TEMPLATES],
-  ['snle-mock-exam-part-2-readable', SNLE_MOCK_EXAM_PART_2_READABLE_TEMPLATES],
+  ['SNLE Mock Exam Part 1', SNLE_MOCK_EXAM_PART_1_READABLE_TEMPLATES],
+  ['SNLE Mock Exam Part 2', SNLE_MOCK_EXAM_PART_2_READABLE_TEMPLATES],
+  ['Prometric 1', PROMETRIC_1_TEMPLATES],
+  ['Prometric 2', PROMETRIC_2_TEMPLATES],
 ];
 const domainFor = (topic) => topic.startsWith('Fundamentals') ? 'Fundamentals' : topic.startsWith('Adult Nursing') ? 'Adult Nursing' : /^(Maternity|Intrapartum|Postpartum|Newborn|Pediatrics)/.test(topic) ? 'Maternal–Child' : 'Management & Leadership';
 const scenarioForms = templates => templates.flatMap(template => [template.stem, ...(template.scenarioVariants || template.variants || [])]);
