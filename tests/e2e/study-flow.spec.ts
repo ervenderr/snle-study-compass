@@ -6,7 +6,7 @@ test('learner can practise, reveal a rationale, continue, and review a flashcard
 
   await page.goto('/');
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
-  await expect(page.getByRole('heading', { name: /Little wins/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /One question/i })).toBeVisible();
   await page.getByRole('button', { name: /Play a new round/i }).click();
 
   await expect(page.locator('.question-title')).toBeVisible();

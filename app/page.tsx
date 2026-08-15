@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 import { domainReferences, domainsForTrack, questions, type LibraryDomain, type Question } from '../lib/questions';
 import { studyResources, type StudyTrack } from '../lib/resources';
 
@@ -12,10 +13,12 @@ type SavedSession = { current: Question; track: StudyTrack; domain: LibraryDomai
 type Player = { xp: number; streak: number; bestStreak: number; correct: number; unlocked: string[] };
 type Players = Record<StudyTrack, Player>;
 type Celebration = { title: string; message: string; emoji: string } | null;
+type PepTalk = { title: string; message: string; emoji: string } | null;
 
 const storageKey = 'snle-study-compass-progress-v2';
 const sessionKey = 'snle-study-compass-session-v1';
 const playerKey = 'snle-study-compass-player-v1';
+const pepTalkKey = 'nurse-quest-pep-talk-v1';
 const letters = ['A', 'B', 'C', 'D'];
 const rewards = [
   { id: 'spark', threshold: 1, emoji: '⭐', title: 'First Spark', message: 'One correct answer is a real beginning.' },
@@ -63,6 +66,7 @@ export default function StudyCompass() {
   const [storageLoaded, setStorageLoaded] = useState(false);
   const [players, setPlayers] = useState<Players>({ SNLE: emptyPlayer(), PNLE: emptyPlayer() });
   const [celebration, setCelebration] = useState<Celebration>(null);
+  const [pepTalk, setPepTalk] = useState<PepTalk>(null);
   const [resourceTrack, setResourceTrack] = useState<StudyTrack>('SNLE');
   const skipInitialSessionWrite = useRef(true);
   const activeQuestions = useMemo(() => questions.filter(question => question.track === examTrack), [examTrack]);
@@ -75,6 +79,11 @@ export default function StudyCompass() {
     setPlayers(loadPlayers());
     setStorageLoaded(true);
   }, []);
+
+  useEffect(() => {
+    if (!storageLoaded || window.localStorage.getItem(pepTalkKey)) return;
+    setPepTalk({ emoji: '💜', title: 'Hey girl, you’ve got this.', message: 'One calm question at a time. Future you is already proud.' });
+  }, [storageLoaded]);
 
   useEffect(() => {
     if (!storageLoaded) return;
@@ -139,6 +148,7 @@ export default function StudyCompass() {
   };
 
   const navigate = (next: View) => { setView(next); setSelected(null); setRevealed(false); };
+  const closePepTalk = () => { setPepTalk(null); try { window.localStorage.setItem(pepTalkKey, 'seen'); } catch {} };
   const openTrack = (track: StudyTrack) => { setResourceTrack(track); setView('resources'); };
   const chooseDomain = (nextDomain: LibraryDomain) => { setDomain(nextDomain); setTopic('All topics'); setMode('Fresh in selection'); startQuestion(examTrack, nextDomain, 'All topics', 'Fresh in selection'); setView('study'); };
   const resumeSession = () => {
@@ -203,12 +213,13 @@ export default function StudyCompass() {
     </section>
   </div>{celebration && <div className="celebration-backdrop" role="dialog" aria-modal="true" aria-labelledby="reward-title"><article className="celebration-card"><span>{celebration.emoji}</span><p className="eyebrow">Reward unlocked · {current.track}</p><h2 id="reward-title">{celebration.title}</h2><p>{celebration.message}</p><div className="reward-score"><b>Level {level}</b><span>{player.xp} XP · {player.bestStreak} best streak</span></div><p className="share-note">Screenshot this little win and share it with your mentor or boss—no patient details, just your progress.</p><button className="primary" onClick={() => setCelebration(null)}>Keep playing →</button></article></div>}</main>;
 
-  return <main className="shell">{header('home')}<section className="hero"><div><p className="eyebrow">Your study playground · pick an exam</p><h1>Little wins.<br />Big nurse energy.</h1><p className="hero-copy">First choose your question library. Then play friendly clinical challenges, collect XP, and grow confidence one calm decision at a time.</p>
+  return <main className="shell">{header('home')}<section className="hero"><div><p className="eyebrow">Your little study corner · pick an exam</p><h1>One question.<br />One glow-up.</h1><p className="hero-copy">First choose your question library. Then take friendly clinical challenges, collect XP, and build confidence one calm decision at a time.</p>
     <div className="library-picker" aria-label="Choose question library"><button className={`library-choice ${examTrack === 'SNLE' ? 'selected' : ''}`} onClick={() => selectTrack('SNLE')}><span>🇸🇦</span><b>SNLE · Saudi Arabia</b><small>320 original scenario forms</small></button><button className={`library-choice ${examTrack === 'PNLE' ? 'selected' : ''}`} onClick={() => selectTrack('PNLE')}><span>🇵🇭</span><b>PNLE · Philippines</b><small>80 original scenario forms</small></button></div>
     <p className="library-rule home-rule">Only one library is active at a time: questions, flashcards, progress, XP, and rewards never mix between countries.</p>
     <div className="hero-buttons"><button className="primary" onClick={() => selectTrack(examTrack, true)}>Play a new round <span aria-hidden="true">→</span></button>{savedSession && <button className="secondary" onClick={resumeSession}>Resume my round</button>}<button className="secondary" onClick={() => openTrack(examTrack)}>Open study library</button></div>
-  </div><aside className="focus-card game-card"><p className="eyebrow">{trackLabel} · player card</p><div className="level-orb">{level}</div><h2>Level {level} learner<br /><em>{player.xp} XP collected</em></h2><div className="mini-progress">{Array.from({ length: 8 }, (_, index) => <span className={index < Math.round((player.xp % 100) / 12.5) ? 'done' : ''} key={index} />)}</div><p>{nextReward ? `${Math.max(0, nextReward.threshold - player.correct)} more correct answer${nextReward.threshold - player.correct === 1 ? '' : 's'} to unlock ${nextReward.emoji} ${nextReward.title}.` : 'Every badge is yours—keep your streak glowing.'}</p></aside></section>
+  </div><aside className="focus-card game-card"><Image className="study-girl" src="/images/study-girl-hero.png" width={1024} height={1024} unoptimized alt="A cheerful student enjoying a cozy study session" /><div className="player-card-copy"><p className="eyebrow">{trackLabel} · player card</p><div className="level-orb">{level}</div><h2>Level {level} learner<br /><em>{player.xp} XP collected</em></h2><div className="mini-progress">{Array.from({ length: 8 }, (_, index) => <span className={index < Math.round((player.xp % 100) / 12.5) ? 'done' : ''} key={index} />)}</div><p>{nextReward ? `${Math.max(0, nextReward.threshold - player.correct)} more correct answer${nextReward.threshold - player.correct === 1 ? '' : 's'} to unlock ${nextReward.emoji} ${nextReward.title}.` : 'Every badge is yours—keep your streak glowing.'}</p></div></aside></section>
   <section className="section"><div className="section-head"><div><p className="eyebrow">{trackLabel} · Pick your lane</p><h2>Practice by blueprint domain</h2></div><p>Tap a domain to start a focused set.</p></div><div className="grid">{activeDomains.map(item => <button className="topic-card" key={item.name} onClick={() => chooseDomain(item.name)}><span className="count">{item.target} TARGET · {domainStats(item.name).total} FORMS</span><h3>{item.name}</h3><p>{item.summary}</p></button>)}</div></section>
   <section className="section history"><article className="panel"><h3>Coverage, at a glance</h3>{activeDomains.map(item => { const stat = domainStats(item.name); const complete = stat.total ? Math.round(stat.done / stat.total * 100) : 0; return <div className="progress-row" key={item.name}><span>{item.name}</span><div className="bar"><i style={{ width: `${complete}%` }} /></div><b>{complete}%</b></div>; })}</article><article className="panel"><h3>Study sources for this library</h3><p className="empty">The blueprint guides the mix. Every domain points toward a public official safety, scope, or blueprint reference.</p><div className="source-list">{activeDomains.map(item => <a key={item.name} href={domainReferences[item.name].href} target="_blank" rel="noreferrer"><span>{item.name}</span>{domainReferences[item.name].title} ↗</a>)}</div><p className="source-note">Full official and commercial resource list: <button onClick={() => openTrack(examTrack)}>Study Library</button>.</p></article></section>
+  {pepTalk && <aside className="pep-popup" role="dialog" aria-label="A little encouragement"><span>{pepTalk.emoji}</span><div><b>{pepTalk.title}</b><p>{pepTalk.message}</p></div><button onClick={closePepTalk} aria-label="Close encouragement">×</button></aside>}
   </main>;
 }
