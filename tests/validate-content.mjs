@@ -25,9 +25,9 @@ assert.equal(pnleTemplates.length, 20, 'the PNLE source bank should have origina
 assert.equal(scenarioForms(pnleTemplates).length, 40, 'PNLE should retain alternate situations for the optional scenario-forms mode');
 assert.equal(new Set(scenarioForms(pnleTemplates).map(normalizeStem)).size, 40, 'PNLE scenarios must not be redundant rewordings');
 assert.deepEqual(new Set(pnleTemplates.map(template => template.id.split('-').slice(0, 2).join('-'))), new Set(['PNLE-I', 'PNLE-II', 'PNLE-III', 'PNLE-IV', 'PNLE-V']), 'PNLE templates must cover each Nursing Practice area');
-assert.equal(usrnTemplates.length, 30, 'the USRN source bank should have original templates');
-assert.equal(scenarioForms(usrnTemplates).length, 70, 'USRN should retain alternate situations for the optional scenario-forms mode');
-assert.equal(new Set(scenarioForms(usrnTemplates).map(normalizeStem)).size, 70, 'USRN scenarios must not be redundant rewordings');
+assert.equal(usrnTemplates.length, 40, 'the USRN source bank should have original templates');
+assert.equal(scenarioForms(usrnTemplates).length, 80, 'USRN should retain alternate situations for the optional scenario-forms mode');
+assert.equal(new Set(scenarioForms(usrnTemplates).map(normalizeStem)).size, 80, 'USRN scenarios must not be redundant rewordings');
 assert.deepEqual(new Set(usrnTemplates.map(template => template.topic.split(' — ')[0])), new Set(['Management of Care', 'Safety and Infection Control', 'Health Promotion and Maintenance', 'Psychosocial Integrity', 'Basic Care and Comfort', 'Pharmacological and Parenteral Therapies', 'Reduction of Risk Potential', 'Physiological Adaptation']), 'USRN templates must cover every 2026 NCLEX-RN Client Needs domain');
 
 for (const q of questions) {

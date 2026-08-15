@@ -62,7 +62,7 @@ test('the learner can choose an entirely separate PNLE library', async ({ page }
 
 test('the learner can choose the separate USRN 2026 library', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: /USRN · NCLEX-RN 2026.*30 original/i }).click();
+  await page.getByRole('button', { name: /USRN · NCLEX-RN 2026.*40 original/i }).click();
   await page.getByRole('button', { name: /Play a new round/i }).click();
   await expect(page.locator('#exam-track')).toHaveValue('USRN');
   await expect(page.locator('.tag')).toContainText('USRN');
