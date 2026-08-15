@@ -110,6 +110,22 @@ test('learner can make, review, retain, and keep private flashcards separated by
   await expect(page.getByRole('button', { name: /Start my random deck/i })).toBeDisabled();
 });
 
+test('long custom flashcard text stays inside its card', async ({ page }) => {
+  const longWord = 'clinicalpriorityassessment'.repeat(18);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Flashcards' }).click();
+  await page.getByLabel('Front of card').fill(longWord);
+  await page.getByLabel('Back of card').fill(`${longWord} — Check the patient, prescription, and safety steps before acting.`);
+  await page.getByRole('button', { name: /Add to my SNLE deck/i }).click();
+  await page.getByRole('button', { name: /Start my random deck/i }).click();
+  const card = page.locator('.single-flashcard .flashcard');
+  await expect(card).toBeVisible();
+  await expect.poll(() => card.evaluate(element => element.scrollWidth <= element.clientWidth)).toBeTruthy();
+  await card.click();
+  await expect.poll(() => card.evaluate(element => element.scrollWidth <= element.clientWidth)).toBeTruthy();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+});
+
 test('practice keeps serving new question scenarios after four answers', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('snle-study-compass-player-v1', JSON.stringify({
