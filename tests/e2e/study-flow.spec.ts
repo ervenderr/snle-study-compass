@@ -12,6 +12,7 @@ test('learner can practise, reveal a rationale, continue, and review a flashcard
   await expect(page.locator('.question-title')).toBeVisible();
   const answers = page.locator('.answer-btn');
   await expect(answers).toHaveCount(4);
+  await expect(page.getByText('Pick an answer to unlock the next question.')).toBeVisible();
   await answers.first().click();
 
   const reveal = page.getByRole('button', { name: 'Reveal answer' });
@@ -53,6 +54,8 @@ test('the learner can choose an entirely separate PNLE library', async ({ page }
   await expect(page.locator('#exam-track')).toHaveValue('PNLE');
   await expect(page.locator('.tag')).toContainText('PNLE');
   await expect(page.locator('.question-title')).not.toContainText('Saudi');
+  const filters = page.getByRole('button', { name: 'Filters' });
+  if (await filters.isVisible()) await filters.click();
   await page.locator('#exam-track').selectOption('SNLE');
   await expect(page.locator('.tag')).toContainText('SNLE');
 });
@@ -60,9 +63,18 @@ test('the learner can choose an entirely separate PNLE library', async ({ page }
 test('a correct answer earns a shareable reward', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: /Play a new round/i }).click();
+  const filters = page.getByRole('button', { name: 'Filters' });
+  if (await filters.isVisible()) await filters.click();
   await page.locator('#domain').selectOption('Fundamentals');
   await page.locator('#topic').selectOption('Fundamentals — Infection prevention');
-  await page.locator('.answer-btn').nth(1).click();
+  await page.locator('.answer-btn').first().click();
+  const firstReward = page.getByRole('dialog');
+  if (await firstReward.isVisible()) {
+    await expect(page.getByText('Reward unlocked')).toBeVisible();
+  } else {
+    await page.getByRole('button', { name: /Next question/i }).click();
+    await page.locator('.answer-btn').nth(1).click();
+  }
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByText('Reward unlocked')).toBeVisible();
   await expect(page.getByText(/Screenshot this little win/i)).toBeVisible();
