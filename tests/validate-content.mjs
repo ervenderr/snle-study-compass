@@ -5,6 +5,7 @@ const source = async (file) => readFile(new URL(`../${file}`, import.meta.url), 
 const { FUNDAMENTALS_ADULT_TEMPLATES } = await import(new URL('../content-fundamentals-adult.js', import.meta.url));
 const { MATERNAL_CHILD_LEADERSHIP_TEMPLATES } = await import(new URL('../content-maternal-child-leadership.js', import.meta.url));
 const { PNLE_TEMPLATES } = await import(new URL('../content-pnle.js', import.meta.url));
+const { USRN_TEMPLATES } = await import(new URL('../content-usrn.js', import.meta.url));
 const templates = [...FUNDAMENTALS_ADULT_TEMPLATES, ...MATERNAL_CHILD_LEADERSHIP_TEMPLATES];
 const domainFor = (topic) => topic.startsWith('Fundamentals') ? 'Fundamentals' : topic.startsWith('Adult Nursing') ? 'Adult Nursing' : /^(Maternity|Intrapartum|Postpartum|Newborn|Pediatrics)/.test(topic) ? 'Maternal–Child' : 'Management & Leadership';
 const questions = templates.flatMap(template => {
@@ -18,6 +19,9 @@ assert.equal(new Set(questions.map(q => q.id)).size, questions.length, 'scenario
 assert.equal(PNLE_TEMPLATES.length, 10, 'the PNLE source bank should have original templates across all five Nursing Practice areas');
 assert.equal(PNLE_TEMPLATES.length * 8, 80, 'every PNLE template should supply eight core scenario forms');
 assert.deepEqual(new Set(PNLE_TEMPLATES.map(template => template.id.split('-').slice(0, 2).join('-'))), new Set(['PNLE-I', 'PNLE-II', 'PNLE-III', 'PNLE-IV', 'PNLE-V']), 'PNLE templates must cover each Nursing Practice area');
+assert.equal(USRN_TEMPLATES.length, 20, 'the USRN source bank should have original templates');
+assert.equal(USRN_TEMPLATES.length * 8, 160, 'every USRN template should supply eight core scenario forms');
+assert.deepEqual(new Set(USRN_TEMPLATES.map(template => template.topic.split(' — ')[0])), new Set(['Management of Care', 'Safety and Infection Control', 'Health Promotion and Maintenance', 'Psychosocial Integrity', 'Basic Care and Comfort', 'Pharmacological and Parenteral Therapies', 'Reduction of Risk Potential', 'Physiological Adaptation']), 'USRN templates must cover every 2026 NCLEX-RN Client Needs domain');
 
 for (const q of questions) {
   assert.equal(q.choices.length, 4, `${q.id} needs four answer choices`);
@@ -31,6 +35,11 @@ for (const q of PNLE_TEMPLATES) {
   assert.ok(q.rationale.length > 50, `${q.id} needs a teaching rationale`);
   assert.ok(q.topic.startsWith('Nursing Practice'), `${q.id} must remain in a PNLE Nursing Practice area`);
 }
+for (const q of USRN_TEMPLATES) {
+  assert.equal(q.choices.length, 4, `${q.id} needs four answer choices`);
+  assert.ok(q.rationale.length > 50, `${q.id} needs a teaching rationale`);
+  assert.ok(q.topic.includes(' — '), `${q.id} must identify a USRN Client Needs domain`);
+}
 
 const targets = { Fundamentals: 20, 'Adult Nursing': 40, 'Maternal–Child': 30, 'Management & Leadership': 10 };
 for (const [domain, target] of Object.entries(targets)) {
@@ -39,8 +48,8 @@ for (const [domain, target] of Object.entries(targets)) {
 }
 
 const appSource = await readFile(new URL('../app/page.tsx', import.meta.url), 'utf8');
-for (const requiredFeature of ['Random topics', 'Reveal answer', 'Next question', 'alternateForm', 'localStorage', 'flashcard', 'Question library', 'SNLE · Saudi Arabia', 'PNLE · Philippines', 'never mix between countries']) {
+for (const requiredFeature of ['Random topics', 'Reveal answer', 'Next question', 'alternateForm', 'localStorage', 'flashcard', 'Question library', 'SNLE · Saudi Arabia', 'PNLE · Philippines', 'USRN · NCLEX-RN 2026', 'never mix between exams']) {
   assert.ok(appSource.includes(requiredFeature), `UI source must include ${requiredFeature}`);
 }
 
-console.log(`PASS: SNLE ${templates.length} templates / ${questions.length} forms; PNLE ${PNLE_TEMPLATES.length} templates / ${PNLE_TEMPLATES.length * 8} forms; valid MCQ/rationale structure, separated libraries, blueprint balance, and required UI flows.`);
+console.log(`PASS: SNLE ${templates.length} templates / ${questions.length} forms; PNLE ${PNLE_TEMPLATES.length} templates / ${PNLE_TEMPLATES.length * 8} forms; USRN ${USRN_TEMPLATES.length} templates / ${USRN_TEMPLATES.length * 8} forms; valid MCQ/rationale structure, separated libraries, blueprint balance, and required UI flows.`);

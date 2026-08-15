@@ -35,15 +35,15 @@ function loadSession(): SavedSession | null {
   try {
     const saved = JSON.parse(window.localStorage.getItem(sessionKey) || 'null') as Partial<SavedSession> | null;
     if (!saved?.current?.choices || saved.current.choices.length !== 4 || typeof saved.current.stem !== 'string') return null;
-    return { ...saved, track: saved.track === 'PNLE' ? 'PNLE' : 'SNLE', domain: saved.domain || 'All domains' } as SavedSession;
+    return { ...saved, track: saved.track === 'PNLE' || saved.track === 'USRN' ? saved.track : 'SNLE', domain: saved.domain || 'All domains' } as SavedSession;
   } catch { return null; }
 }
 function loadPlayers(): Players {
   try {
     const saved = JSON.parse(window.localStorage.getItem(playerKey) || 'null') as Partial<Players & Player> | null;
-    if (saved && 'SNLE' in saved && 'PNLE' in saved) return { SNLE: saved.SNLE as Player, PNLE: saved.PNLE as Player };
-    return { SNLE: (saved && 'xp' in saved ? saved : emptyPlayer()) as Player, PNLE: emptyPlayer() };
-  } catch { return { SNLE: emptyPlayer(), PNLE: emptyPlayer() }; }
+    if (saved && 'SNLE' in saved) return { SNLE: saved.SNLE as Player, PNLE: (saved.PNLE as Player) || emptyPlayer(), USRN: (saved.USRN as Player) || emptyPlayer() };
+    return { SNLE: (saved && 'xp' in saved ? saved : emptyPlayer()) as Player, PNLE: emptyPlayer(), USRN: emptyPlayer() };
+  } catch { return { SNLE: emptyPlayer(), PNLE: emptyPlayer(), USRN: emptyPlayer() }; }
 }
 
 function alternateForm(question: Question): Question {
@@ -65,7 +65,7 @@ export default function StudyCompass() {
   const [flipped, setFlipped] = useState<Set<string>>(new Set());
   const [savedSession, setSavedSession] = useState<SavedSession | null>(null);
   const [storageLoaded, setStorageLoaded] = useState(false);
-  const [players, setPlayers] = useState<Players>({ SNLE: emptyPlayer(), PNLE: emptyPlayer() });
+  const [players, setPlayers] = useState<Players>({ SNLE: emptyPlayer(), PNLE: emptyPlayer(), USRN: emptyPlayer() });
   const [celebration, setCelebration] = useState<Celebration>(null);
   const [pepTalk, setPepTalk] = useState<PepTalk>(null);
   const [resourceTrack, setResourceTrack] = useState<StudyTrack>('SNLE');
@@ -154,7 +154,7 @@ export default function StudyCompass() {
   const chooseDomain = (nextDomain: LibraryDomain) => { setDomain(nextDomain); setTopic('All topics'); setMode('Fresh in selection'); startQuestion(examTrack, nextDomain, 'All topics', 'Fresh in selection'); setView('study'); };
   const resumeSession = () => {
     if (!savedSession) return;
-    const validTrack = savedSession.track === 'PNLE' ? 'PNLE' : 'SNLE';
+    const validTrack = savedSession.track === 'PNLE' || savedSession.track === 'USRN' ? savedSession.track : 'SNLE';
     const validDomain = savedSession.current.track === validTrack ? savedSession.domain : 'All domains';
     setExamTrack(validTrack); setDomain(validDomain); setTopic(savedSession.topic); setMode(savedSession.mode); setCurrent(savedSession.current); setSelected(savedSession.selected); setRevealed(savedSession.revealed); setView('study');
   };
@@ -163,7 +163,7 @@ export default function StudyCompass() {
   const flashcards = activeQuestions.filter(question => question.variantNumber === 0 && (domain === 'All domains' || question.domain === domain));
   const level = Math.floor(player.xp / 100) + 1;
   const nextReward = rewards.find(reward => !player.unlocked.includes(reward.id));
-  const trackLabel = examTrack === 'SNLE' ? 'SNLE · Saudi Arabia' : 'PNLE · Philippines';
+  const trackLabel = examTrack === 'SNLE' ? 'SNLE · Saudi Arabia' : examTrack === 'PNLE' ? 'PNLE · Philippines' : 'USRN · NCLEX-RN 2026';
 
   const header = (active: View) => <header className="nav">
     <button className="brand" onClick={() => navigate('home')} aria-label="Nurse Quest home"><span className="mark">N</span> Nurse Quest</button>
@@ -179,9 +179,9 @@ export default function StudyCompass() {
   if (view === 'resources') return <main className="shell">{header('resources')}<section className="section" style={{ marginTop: 0 }}>
     <p className="eyebrow">Your study library</p><h1 className="page-title">Choose the exam first.<br />Then choose what helps.</h1>
     <p className="hero-copy">Official references and legitimate commercial companions for each country. Use them to understand topics—never to copy or circulate protected reviewer questions.</p>
-    <div className="track-toggle"><button className={resourceTrack === 'SNLE' ? 'selected' : ''} onClick={() => setResourceTrack('SNLE')}>🇸🇦 SNLE · Saudi Arabia</button><button className={resourceTrack === 'PNLE' ? 'selected' : ''} onClick={() => setResourceTrack('PNLE')}>🇵🇭 PNLE · Philippines</button></div>
+    <div className="track-toggle"><button className={resourceTrack === 'SNLE' ? 'selected' : ''} onClick={() => setResourceTrack('SNLE')}>🇸🇦 SNLE · Saudi Arabia</button><button className={resourceTrack === 'PNLE' ? 'selected' : ''} onClick={() => setResourceTrack('PNLE')}>🇵🇭 PNLE · Philippines</button><button className={resourceTrack === 'USRN' ? 'selected' : ''} onClick={() => setResourceTrack('USRN')}>🇺🇸 USRN · NCLEX-RN 2026</button></div>
     <div className="resource-grid">{studyResources[resourceTrack].map(resource => <a className="resource-card" key={resource.title} href={resource.href} target="_blank" rel="noreferrer"><span>{resource.kind}</span><h2>{resource.title}</h2><p>{resource.text}</p><b>Open resource ↗</b></a>)}</div>
-    <article className="track-note"><span>{resourceTrack === 'SNLE' ? '🇸🇦' : '🇵🇭'}</span><div><h2>{resourceTrack === 'SNLE' ? 'SNLE question library' : 'PNLE question library'}—separate by design.</h2><p>Open a {resourceTrack} round to use only original {resourceTrack === 'SNLE' ? 'Saudi-focused' : 'Philippine-focused'} questions, flashcards, progress, and rewards. Nothing is mixed across countries.</p><button className="primary" onClick={() => selectTrack(resourceTrack, true)}>Open {resourceTrack} question library →</button></div></article>
+    <article className="track-note"><span>{resourceTrack === 'SNLE' ? '🇸🇦' : resourceTrack === 'PNLE' ? '🇵🇭' : '🇺🇸'}</span><div><h2>{resourceTrack === 'SNLE' ? 'SNLE question library' : resourceTrack === 'PNLE' ? 'PNLE question library' : 'USRN / NCLEX-RN 2026 question library'}—separate by design.</h2><p>Open a {resourceTrack} round to use only original {resourceTrack === 'SNLE' ? 'Saudi-focused' : resourceTrack === 'PNLE' ? 'Philippine-focused' : 'USRN / NCLEX-RN 2026-focused'} questions, flashcards, progress, and rewards. Nothing is mixed across exam libraries.</p><button className="primary" onClick={() => selectTrack(resourceTrack, true)}>Open {resourceTrack} question library →</button></div></article>
   </section></main>;
 
   if (view === 'rewards') return <main className="shell">{header('rewards')}<section className="section" style={{ marginTop: 0 }}>
@@ -199,7 +199,7 @@ export default function StudyCompass() {
 
   if (view === 'study') return <main className="shell">{header('study')}<div className="study-layout">
     <aside className="study-controls"><div className="study-controls-head"><h2>Shape your set</h2><button className="mobile-control-toggle" aria-expanded={controlsOpen} aria-controls="study-set-controls" onClick={() => setControlsOpen(open => !open)}>{controlsOpen ? 'Done' : 'Filters'} <span aria-hidden="true">{controlsOpen ? '↑' : '☰'}</span></button></div>
-      <div className={`control-body ${controlsOpen ? 'open' : ''}`} id="study-set-controls"><div className="field"><label htmlFor="exam-track">Question library</label><select id="exam-track" value={examTrack} onChange={event => selectTrack(event.target.value as StudyTrack, true)}><option value="SNLE">SNLE · Saudi Arabia</option><option value="PNLE">PNLE · Philippines</option></select></div>
+      <div className={`control-body ${controlsOpen ? 'open' : ''}`} id="study-set-controls"><div className="field"><label htmlFor="exam-track">Question library</label><select id="exam-track" value={examTrack} onChange={event => selectTrack(event.target.value as StudyTrack, true)}><option value="SNLE">SNLE · Saudi Arabia</option><option value="PNLE">PNLE · Philippines</option><option value="USRN">USRN · NCLEX-RN 2026</option></select></div>
       <p className="library-rule">One library is active at a time. Your countries never mix.</p>
       <div className="field"><label htmlFor="domain">Domain</label><select id="domain" value={domain} onChange={event => { const next = event.target.value as LibraryDomain | 'All domains'; setDomain(next); setTopic('All topics'); setMode('Fresh in selection'); }}><option>All domains</option>{activeDomains.map(item => <option key={item.name}>{item.name}</option>)}</select></div>
       <div className="field"><label htmlFor="topic">Topic</label><select id="topic" value={topic} onChange={event => { setTopic(event.target.value); setMode('Fresh in selection'); }}><option>All topics</option>{topics.map(item => <option key={item}>{item}</option>)}</select></div>
@@ -215,8 +215,8 @@ export default function StudyCompass() {
   </div>{celebration && <div className="celebration-backdrop" role="dialog" aria-modal="true" aria-labelledby="reward-title"><article className="celebration-card"><span>{celebration.emoji}</span><p className="eyebrow">Reward unlocked · {current.track}</p><h2 id="reward-title">{celebration.title}</h2><p>{celebration.message}</p><div className="reward-score"><b>Level {level}</b><span>{player.xp} XP · {player.bestStreak} best streak</span></div><p className="share-note">Screenshot this little win and share it with your mentor or boss—no patient details, just your progress.</p><button className="primary" onClick={() => setCelebration(null)}>Keep playing →</button></article></div>}</main>;
 
   return <main className="shell">{header('home')}<section className="hero"><div><p className="eyebrow">Your little study corner · pick an exam</p><h1>One question.<br />One glow-up.</h1><p className="hero-copy">First choose your question library. Then take friendly clinical challenges, collect XP, and build confidence one calm decision at a time.</p>
-    <div className="library-picker" aria-label="Choose question library"><button className={`library-choice ${examTrack === 'SNLE' ? 'selected' : ''}`} onClick={() => selectTrack('SNLE')}><span>🇸🇦</span><b>SNLE · Saudi Arabia</b><small>320 original scenario forms</small></button><button className={`library-choice ${examTrack === 'PNLE' ? 'selected' : ''}`} onClick={() => selectTrack('PNLE')}><span>🇵🇭</span><b>PNLE · Philippines</b><small>80 original scenario forms</small></button></div>
-    <p className="library-rule home-rule">Only one library is active at a time: questions, flashcards, progress, XP, and rewards never mix between countries.</p>
+    <div className="library-picker" aria-label="Choose question library"><button className={`library-choice ${examTrack === 'SNLE' ? 'selected' : ''}`} onClick={() => selectTrack('SNLE')}><span>🇸🇦</span><b>SNLE · Saudi Arabia</b><small>320 original scenario forms</small></button><button className={`library-choice ${examTrack === 'PNLE' ? 'selected' : ''}`} onClick={() => selectTrack('PNLE')}><span>🇵🇭</span><b>PNLE · Philippines</b><small>80 original scenario forms</small></button><button className={`library-choice ${examTrack === 'USRN' ? 'selected' : ''}`} onClick={() => selectTrack('USRN')}><span>🇺🇸</span><b>USRN · NCLEX-RN 2026</b><small>160 original scenario forms</small></button></div>
+    <p className="library-rule home-rule">Only one library is active at a time: questions, flashcards, progress, XP, and rewards never mix between exams.</p>
     <div className="hero-buttons"><button className="primary" onClick={() => selectTrack(examTrack, true)}>Play a new round <span aria-hidden="true">→</span></button>{savedSession && <button className="secondary" onClick={resumeSession}>Resume my round</button>}<button className="secondary" onClick={() => openTrack(examTrack)}>Open study library</button></div>
   </div><aside className="focus-card game-card"><Image className="cat-meme" src="https://cataas.com/cat/says/You%20got%20this%20girl?fontSize=28&fontColor=765792&width=900" width={900} height={900} unoptimized alt="A cat meme saying you got this girl" /><div className="player-card-copy"><p className="eyebrow">{trackLabel} · player card</p><div className="level-orb">{level}</div><h2>Level {level} learner<br /><em>{player.xp} XP collected</em></h2><div className="mini-progress">{Array.from({ length: 8 }, (_, index) => <span className={index < Math.round((player.xp % 100) / 12.5) ? 'done' : ''} key={index} />)}</div><p>{nextReward ? `${Math.max(0, nextReward.threshold - player.correct)} more correct answer${nextReward.threshold - player.correct === 1 ? '' : 's'} to unlock ${nextReward.emoji} ${nextReward.title}.` : 'Every badge is yours—keep your streak glowing.'}</p></div></aside></section>
   <section className="section"><div className="section-head"><div><p className="eyebrow">{trackLabel} · Pick your lane</p><h2>Practice by blueprint domain</h2></div><p>Tap a domain to start a focused set.</p></div><div className="grid">{activeDomains.map(item => <button className="topic-card" key={item.name} onClick={() => chooseDomain(item.name)}><span className="count">{item.target} TARGET · {domainStats(item.name).total} FORMS</span><h3>{item.name}</h3><p>{item.summary}</p></button>)}</div></section>
