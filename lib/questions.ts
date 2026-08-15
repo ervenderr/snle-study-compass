@@ -1,5 +1,6 @@
 import { FUNDAMENTALS_ADULT_TEMPLATES } from '../content-fundamentals-adult';
 import { MATERNAL_CHILD_LEADERSHIP_TEMPLATES } from '../content-maternal-child-leadership';
+import { SNLE_EXPANSION_TEMPLATES } from '../content-snle-expansion';
 import { PNLE_TEMPLATES } from '../content-pnle';
 import { USRN_TEMPLATES } from '../content-usrn';
 import type { StudyTrack } from './resources';
@@ -30,7 +31,7 @@ type RawTemplate = Omit<Question, 'domain' | 'templateId' | 'track' | 'variantNu
 
 export type DomainInfo = { name: LibraryDomain; target: string; summary: string };
 
-const snleRaw = [...FUNDAMENTALS_ADULT_TEMPLATES, ...MATERNAL_CHILD_LEADERSHIP_TEMPLATES] as RawTemplate[];
+const snleRaw = [...FUNDAMENTALS_ADULT_TEMPLATES, ...MATERNAL_CHILD_LEADERSHIP_TEMPLATES, ...SNLE_EXPANSION_TEMPLATES] as RawTemplate[];
 const pnleRaw = PNLE_TEMPLATES as RawTemplate[];
 const usrnRaw = USRN_TEMPLATES as RawTemplate[];
 
