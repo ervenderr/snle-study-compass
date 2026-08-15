@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { domainReferences, domainsForTrack, questions, type LibraryDomain, type Question } from '../lib/questions';
 import { studyResources, type StudyTrack } from '../lib/resources';
 
-type View = 'home' | 'practiceSetup' | 'study' | 'flashcards' | 'rewards' | 'resources';
+type View = 'home' | 'practiceSetup' | 'study' | 'flashcards' | 'flashcardStudy' | 'rewards' | 'resources';
 type Mode = 'Random topics' | 'Fresh in selection' | 'All scenario forms' | 'Review incorrect';
 type StudyRecord = { correct: boolean; selected: number; answeredAt: string; alternate: boolean };
 type Progress = Record<string, StudyRecord>;
@@ -76,6 +76,8 @@ export default function StudyCompass() {
   const [revealed, setRevealed] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [flipped, setFlipped] = useState<Set<string>>(new Set());
+  const [flashcardMode, setFlashcardMode] = useState<'clinical' | 'custom'>('clinical');
+  const [currentFlashcard, setCurrentFlashcard] = useState<Question | CustomFlashcard | null>(null);
   const [customFlashcards, setCustomFlashcards] = useState<CustomFlashcard[]>([]);
   const [customFront, setCustomFront] = useState('');
   const [customBack, setCustomBack] = useState('');
@@ -212,6 +214,17 @@ export default function StudyCompass() {
   const flashcards = activeQuestions.filter(question => question.variantNumber === 0 && (domain === 'All domains' || question.domain === domain));
   const customCardsForTrack = customFlashcards.filter(card => card.track === examTrack);
   const dueCustomCards = customCardsForTrack.filter(card => new Date(card.dueAt).getTime() <= Date.now());
+  const flashcardPool = (nextMode = flashcardMode): Array<Question | CustomFlashcard> => nextMode === 'custom' ? (dueCustomCards.length ? dueCustomCards : customCardsForTrack) : flashcards;
+  const startFlashcardRound = (nextMode: 'clinical' | 'custom') => {
+    const pool = flashcardPool(nextMode);
+    if (!pool.length) return;
+    setFlashcardMode(nextMode); setCurrentFlashcard(randomItem(pool)); setFlipped(new Set()); setView('flashcardStudy');
+  };
+  const nextFlashcard = () => {
+    const pool = flashcardPool();
+    const options = pool.filter(card => card.id !== currentFlashcard?.id);
+    if (pool.length) { setCurrentFlashcard(randomItem(options.length ? options : pool)); setFlipped(new Set()); }
+  };
   const level = Math.floor(player.xp / 100) + 1;
   const nextReward = rewards.find(reward => !player.unlocked.includes(reward.id));
   const trackLabel = examTrack === 'SNLE' ? 'SNLE · Saudi Arabia' : examTrack === 'PNLE' ? 'PNLE · Philippines' : 'USRN · NCLEX-RN 2026';
@@ -242,6 +255,20 @@ export default function StudyCompass() {
     <div className="badge-grid">{rewards.map(reward => { const unlocked = player.unlocked.includes(reward.id); return <article className={`badge ${unlocked ? 'unlocked' : ''}`} key={reward.id}><span>{reward.emoji}</span><h2>{reward.title}</h2><p>{reward.message}</p><b>{unlocked ? 'Unlocked!' : `${reward.threshold} correct answers`}</b></article>; })}</div>
   </section></main>;
 
+  if (view === 'flashcardStudy' && currentFlashcard) {
+    const customCard = flashcardMode === 'custom';
+    const personalCard = currentFlashcard as CustomFlashcard;
+    const clinicalCard = currentFlashcard as Question;
+    const isFlipped = flipped.has(currentFlashcard.id);
+    const nextInterval = customCard ? Math.min(personalCard.intervalDays ? personalCard.intervalDays * 2 : 1, 30) : 0;
+    const removeCurrentCard = () => {
+      deleteCustomFlashcard(currentFlashcard.id);
+      const remaining = customCardsForTrack.filter(card => card.id !== currentFlashcard.id);
+      if (remaining.length) { setCurrentFlashcard(randomItem(remaining)); setFlipped(new Set()); } else { navigate('flashcards'); }
+    };
+    return <main className="shell">{header('flashcards')}<section className="flashcard-study" style={{ marginTop: 0 }}><button className="back-link" onClick={() => navigate('flashcards')}>← Back to flashcards</button><p className="eyebrow">{customCard ? `My ${examTrack} deck` : `${trackLabel} · clinical anchors`}</p><h1 className="page-title">One calm card<br />at a time.</h1><p className="flashcard-study-copy">{customCard ? 'Say the answer first, then flip it. Rate it honestly and let the little deck work for you.' : 'A fresh clinical anchor, chosen at random. Think first, then tap to reveal.'}</p><article className="single-flashcard"><button type="button" className={`flashcard ${isFlipped ? 'flipped' : ''}`} onClick={() => setFlipped(previous => { const next = new Set(previous); next.has(currentFlashcard.id) ? next.delete(currentFlashcard.id) : next.add(currentFlashcard.id); return next; })}><span className="front">{customCard ? `My ${examTrack} card` : clinicalCard.topic}</span><h2>{customCard ? personalCard.front : clinicalCard.stem}</h2><p className="front">Tap to reveal</p><div className="back"><span className="back-label">{customCard ? 'Your answer / note' : 'Best response'}</span><h2>{customCard ? personalCard.back : clinicalCard.choices[clinicalCard.correctIndex]}</h2><p>{customCard ? (personalCard.reviewCount ? `Reviewed ${personalCard.reviewCount} time${personalCard.reviewCount === 1 ? '' : 's'}.` : 'A fresh card—nice one.') : clinicalCard.rationale}</p></div></button>{isFlipped && customCard && <div className="single-flashcard-actions"><button className="secondary" type="button" onClick={() => { reviewCustomFlashcard(currentFlashcard.id, false); nextFlashcard(); }}>Again · 10 min</button><button className="primary" type="button" onClick={() => { reviewCustomFlashcard(currentFlashcard.id, true); nextFlashcard(); }}>Got it · {nextInterval} day{nextInterval === 1 ? '' : 's'}</button></div>}<div className="single-flashcard-footer"><button className="secondary" type="button" onClick={nextFlashcard}>Next random card →</button>{customCard && <button className="reset" type="button" onClick={removeCurrentCard}>Delete this card</button>}</div></article></section></main>;
+  }
+
   if (view === 'flashcards') return <main className="shell">{header('flashcards')}<section className="custom-flashcard-panel" style={{ marginTop: 0 }}>
     <div><p className="eyebrow">Your own little deck · {trackLabel}</p><h1 className="page-title">Make it yours,<br />one card at a time.</h1><p>Turn tricky notes, mnemonics, and “ohhh, that’s why” moments into private cards for this library.</p></div>
     <form className="custom-flashcard-form" onSubmit={addCustomFlashcard}>
@@ -250,13 +277,9 @@ export default function StudyCompass() {
       <div className="custom-form-foot"><small>Stays privately in this browser · {customFront.length + customBack.length}/1000</small><button className="primary" type="submit">Add to my {examTrack} deck →</button></div>
       {customFlashcardError && <p className="custom-card-error" role="alert">{customFlashcardError}</p>}
     </form>
-  </section><section className="section custom-deck-section">
-    <div className="section-head"><div><p className="eyebrow">My {examTrack} cards</p><h2>Today’s little deck</h2></div><p>{dueCustomCards.length} due now · {customCardsForTrack.length} saved</p></div>
-    {customCardsForTrack.length ? <div className="custom-flash-grid">{customCardsForTrack.map(card => { const nextInterval = card.intervalDays ? Math.min(card.intervalDays * 2, 30) : 1; return <article className="custom-flashcard" key={card.id}><button type="button" className={`flashcard ${flipped.has(card.id) ? 'flipped' : ''}`} onClick={() => setFlipped(previous => { const next = new Set(previous); next.has(card.id) ? next.delete(card.id) : next.add(card.id); return next; })}><span className="front">My {card.track} card · {new Date(card.dueAt).getTime() <= Date.now() ? 'ready now' : 'resting'}</span><h3>{card.front}</h3><p className="front">Tap to reveal your note</p><div className="back"><span className="back-label">Your answer / note</span><h3>{card.back}</h3><p>{card.reviewCount ? `Reviewed ${card.reviewCount} time${card.reviewCount === 1 ? '' : 's'}.` : 'A fresh card—nice one.'}</p></div></button>{flipped.has(card.id) && <div className="custom-flashcard-actions"><button className="secondary" type="button" onClick={() => reviewCustomFlashcard(card.id, false)}>Again · 10 min</button><button className="primary" type="button" onClick={() => reviewCustomFlashcard(card.id, true)}>Got it · {nextInterval} day{nextInterval === 1 ? '' : 's'}</button></div>}<button className="reset" type="button" onClick={() => deleteCustomFlashcard(card.id)} aria-label={`Delete custom card: ${card.front}`}>Delete card</button></article>; })}</div> : <article className="custom-empty"><span>📝</span><h3>Your first card can live here.</h3><p>Save a question or a tiny memory trick above, then tap it to practise active recall.</p></article>}
-  </section><section className="section">
-    <div className="section-head"><div><p className="eyebrow">{trackLabel} · Fast active recall</p><h2>Flashcards for clinical anchors</h2></div><div className="field" style={{ minWidth: 190, margin: 0 }}><label htmlFor="flash-domain">Focus domain</label><select id="flash-domain" value={domain} onChange={event => setDomain(event.target.value as LibraryDomain | 'All domains')}><option>All domains</option>{activeDomains.map(item => <option key={item.name}>{item.name}</option>)}</select></div></div>
-    <p className="card-note">Only {examTrack} cards are shown. Tap a card to reveal the key action and why it matters.</p>
-    <div className="flash-grid">{flashcards.map(question => <button className={`flashcard ${flipped.has(question.id) ? 'flipped' : ''}`} key={question.id} onClick={() => setFlipped(previous => { const next = new Set(previous); next.has(question.id) ? next.delete(question.id) : next.add(question.id); return next; })}><span className="front">{question.topic}</span><h3>{question.stem}</h3><p className="front">Tap to reveal</p><div className="back"><span className="back-label">Best response</span><h3>{question.choices[question.correctIndex]}</h3><p>{question.rationale}</p></div></button>)}</div>
+  </section><section className="section flashcard-launch-section">
+    <div className="section-head"><div><p className="eyebrow">Ready when she is</p><h2>Choose a little deck</h2></div><p>No card list here—each round starts fresh and random.</p></div>
+    <div className="flashcard-launch-grid"><article><span>📝</span><p className="eyebrow">My {examTrack} cards</p><h3>Her own notes, made memorable.</h3><p>{customCardsForTrack.length ? `${dueCustomCards.length} due now · ${customCardsForTrack.length} saved` : 'Make a card above, then come back for a mini review.'}</p><button className="primary" disabled={!customCardsForTrack.length} onClick={() => startFlashcardRound('custom')}>Start my random deck →</button></article><article><span>✨</span><p className="eyebrow">Clinical anchors</p><h3>Practice built-in nursing cards.</h3><p>Choose a domain if she wants, then get one randomized card at a time.</p><div className="field"><label htmlFor="flash-domain">Focus domain</label><select id="flash-domain" value={domain} onChange={event => setDomain(event.target.value as LibraryDomain | 'All domains')}><option>All domains</option>{activeDomains.map(item => <option key={item.name}>{item.name}</option>)}</select></div><button className="primary" onClick={() => startFlashcardRound('clinical')}>Start random clinical card →</button></article></div>
   </section></main>;
 
   if (view === 'practiceSetup') return <main className="shell">{header('practiceSetup')}<section className="section practice-setup" style={{ marginTop: 0 }}>

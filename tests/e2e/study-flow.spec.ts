@@ -31,7 +31,8 @@ test('learner can practise, reveal a rationale, continue, and review a flashcard
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
 
   await page.getByRole('button', { name: 'Flashcards' }).click();
-  const card = page.locator('.flashcard').first();
+  await page.getByRole('button', { name: /Start random clinical card/i }).click();
+  const card = page.locator('.single-flashcard .flashcard');
   await expect(card).toBeVisible();
   await card.click();
   await expect(card.getByText('Best response')).toBeVisible();
@@ -91,8 +92,10 @@ test('learner can make, review, retain, and keep private flashcards separated by
   await page.getByLabel('Back of card').fill('Confirm the order, allergy status, identity, and safe administration checks.');
   await page.getByRole('button', { name: /Add to my SNLE deck/i }).click();
 
-  const myCard = page.locator('.custom-flashcard').filter({ hasText: 'What should I check before a first-dose medication?' });
-  await expect(myCard).toBeVisible();
+  await expect(page.getByText('No card list here—each round starts fresh and random.')).toBeVisible();
+  await page.getByRole('button', { name: /Start my random deck/i }).click();
+  const myCard = page.locator('.single-flashcard');
+  await expect(myCard).toContainText('What should I check before a first-dose medication?');
   await myCard.locator('.flashcard').click();
   await expect(myCard.getByText('Your answer / note')).toBeVisible();
   await myCard.getByRole('button', { name: /Got it/i }).click();
@@ -100,12 +103,11 @@ test('learner can make, review, retain, and keep private flashcards separated by
 
   await page.reload();
   await page.getByRole('button', { name: 'Flashcards' }).click();
-  await expect(page.getByText('What should I check before a first-dose medication?')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Start my random deck/i })).toBeEnabled();
   await page.getByRole('button', { name: 'Overview' }).click();
   await page.getByRole('button', { name: /PNLE · Philippines.*20 original/i }).click();
   await page.getByRole('button', { name: 'Flashcards' }).click();
-  await expect(page.getByText('Your first card can live here.')).toBeVisible();
-  await expect(page.getByText('What should I check before a first-dose medication?')).not.toBeVisible();
+  await expect(page.getByRole('button', { name: /Start my random deck/i })).toBeDisabled();
 });
 
 test('practice keeps serving new question scenarios after four answers', async ({ page }) => {
