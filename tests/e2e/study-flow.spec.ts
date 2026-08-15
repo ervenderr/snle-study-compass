@@ -49,7 +49,7 @@ test('learner can practise, reveal a rationale, continue, and review a flashcard
 
 test('the learner can choose an entirely separate PNLE library', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: /PNLE · Philippines.*30 distinct/i }).click();
+  await page.getByRole('button', { name: /PNLE · Philippines.*10 original/i }).click();
   await page.getByRole('button', { name: /Play a new round/i }).click();
   await expect(page.locator('#exam-track')).toHaveValue('PNLE');
   await expect(page.locator('.tag')).toContainText('PNLE');
@@ -62,7 +62,7 @@ test('the learner can choose an entirely separate PNLE library', async ({ page }
 
 test('the learner can choose the separate USRN 2026 library', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: /USRN · NCLEX-RN 2026.*60 distinct/i }).click();
+  await page.getByRole('button', { name: /USRN · NCLEX-RN 2026.*20 original/i }).click();
   await page.getByRole('button', { name: /Play a new round/i }).click();
   await expect(page.locator('#exam-track')).toHaveValue('USRN');
   await expect(page.locator('.tag')).toContainText('USRN');
@@ -103,6 +103,30 @@ test('practice keeps serving new question scenarios after four answers', async (
   const stems: string[] = [];
   for (let index = 0; index < 5; index += 1) {
     stems.push(await page.locator('.question-title').innerText());
+    await page.locator('.answer-btn').first().click();
+    if (index < 4) await page.getByRole('button', { name: /Next question/i }).click();
+  }
+
+  expect(new Set(stems).size).toBe(5);
+});
+
+test('normal practice uses original core questions before scenario variations', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('snle-study-compass-player-v1', JSON.stringify({
+      SNLE: { xp: 0, streak: 0, bestStreak: 0, correct: 1, unlocked: ['spark'] },
+      PNLE: { xp: 0, streak: 0, bestStreak: 0, correct: 1, unlocked: ['spark'] },
+      USRN: { xp: 0, streak: 0, bestStreak: 0, correct: 1, unlocked: ['spark'] },
+    }));
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Practice', exact: true }).click();
+  await page.getByRole('button', { name: /Start USRN practice/i }).click();
+  await page.evaluate(() => { Math.random = () => 0; });
+
+  const stems: string[] = [];
+  for (let index = 0; index < 5; index += 1) {
+    stems.push(await page.locator('.question-title').innerText());
+    await expect(page.locator('.difficulty')).toHaveText('SCENARIO 1');
     await page.locator('.answer-btn').first().click();
     if (index < 4) await page.getByRole('button', { name: /Next question/i }).click();
   }
