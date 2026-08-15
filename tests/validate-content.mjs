@@ -10,6 +10,7 @@ const { PNLE_TEMPLATES } = await import(new URL('../content-pnle.js', import.met
 const { PNLE_EXPANSION_TEMPLATES } = await import(new URL('../content-pnle-expansion.js', import.meta.url));
 const { USRN_TEMPLATES } = await import(new URL('../content-usrn.js', import.meta.url));
 const { USRN_EXPANSION_TEMPLATES } = await import(new URL('../content-usrn-expansion.js', import.meta.url));
+const { studyResources } = await import(new URL('../lib/resources.ts', import.meta.url));
 const templates = [...FUNDAMENTALS_ADULT_TEMPLATES, ...MATERNAL_CHILD_LEADERSHIP_TEMPLATES, ...SNLE_EXPANSION_TEMPLATES];
 const namedSnleSets = [
   ['SNLE Mock Exam Part 1', SNLE_MOCK_EXAM_PART_1_READABLE_TEMPLATES],
@@ -28,6 +29,9 @@ assert.equal(new Set(questions.map(q => q.id)).size, questions.length, 'scenario
 assert.equal(new Set(questions.map(q => normalizeStem(q.stem))).size, questions.length, 'SNLE scenarios must not be redundant rewordings');
 const pnleTemplates = [...PNLE_TEMPLATES, ...PNLE_EXPANSION_TEMPLATES];
 const usrnTemplates = [...USRN_TEMPLATES, ...USRN_EXPANSION_TEMPLATES];
+for (const href of ['https://doctor13.com/snle-mock-exam-part-1/', 'https://doctor13.com/snle-mock-exam-part-2/']) {
+  assert.ok(studyResources.SNLE.some(resource => resource.href === href), `SNLE Study Library must include ${href}`);
+}
 assert.equal(pnleTemplates.length, 20, 'the PNLE source bank should have original templates across all five Nursing Practice areas');
 assert.equal(scenarioForms(pnleTemplates).length, 40, 'PNLE should retain alternate situations for the optional scenario-forms mode');
 assert.equal(new Set(scenarioForms(pnleTemplates).map(normalizeStem)).size, 40, 'PNLE scenarios must not be redundant rewordings');
