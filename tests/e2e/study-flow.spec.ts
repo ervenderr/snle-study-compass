@@ -8,6 +8,7 @@ test('learner can practise, reveal a rationale, continue, and review a flashcard
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   await expect(page.getByRole('heading', { name: /One question/i })).toBeVisible();
   await page.getByRole('button', { name: /Play a new round/i }).click();
+  await page.getByRole('button', { name: /Nurse Quest originals/i }).click();
 
   await expect(page.locator('.question-title')).toBeVisible();
   const answers = page.locator('.answer-btn');
@@ -18,6 +19,8 @@ test('learner can practise, reveal a rationale, continue, and review a flashcard
   const reveal = page.getByRole('button', { name: 'Reveal answer' });
   if (await reveal.isVisible()) await reveal.click();
   await expect(page.getByText('Rationale:', { exact: false })).toBeVisible();
+  const celebration = page.getByRole('dialog');
+  if (await celebration.isVisible()) await celebration.getByRole('button', { name: /Keep playing/i }).click();
   const firstStem = await page.locator('.question-title').innerText();
   await page.getByRole('button', { name: /Next question/i }).click();
   await expect(page.locator('.question-title')).not.toHaveText(firstStem);
@@ -77,12 +80,26 @@ test('Practice opens a three-library chooser before any question', async ({ page
   await page.goto('/');
   await page.getByRole('button', { name: 'Practice', exact: true }).click();
   await expect(page.getByRole('heading', { name: /Which exam are we/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Start SNLE practice/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Choose an SNLE set/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Start PNLE practice/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Start USRN practice/i })).toBeVisible();
   await page.getByRole('button', { name: /Start USRN practice/i }).click();
   await expect(page.locator('.tag')).toContainText('USRN');
   await expect(page.locator('.question-title')).toBeVisible();
+});
+
+test('SNLE practice opens a set chooser and keeps the four-choice flow', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Practice', exact: true }).click();
+  await page.getByRole('button', { name: /Choose an SNLE set/i }).click();
+  await expect(page.getByRole('heading', { name: /Which SNLE set/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Doctor18 SNLE Mock Exam/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /snle-mock-exam-part-1-readable\.md/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /snle-mock-exam-part-2-readable\.md/i })).toBeVisible();
+  await page.getByRole('button', { name: /Doctor18 SNLE Mock Exam/i }).click();
+  await expect(page.locator('#exam-track')).toHaveValue('SNLE');
+  await expect(page.locator('#snle-question-set')).toHaveValue('doctor18-snle-mock-exam');
+  await expect(page.locator('.answer-btn')).toHaveCount(4);
 });
 
 test('learner can make, review, retain, and keep private flashcards separated by library', async ({ page }) => {
@@ -179,6 +196,7 @@ test('normal practice uses original core questions before scenario variations', 
 test('a correct answer earns a shareable reward', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: /Play a new round/i }).click();
+  await page.getByRole('button', { name: /Nurse Quest originals/i }).click();
   const filters = page.getByRole('button', { name: 'Filters' });
   if (await filters.isVisible()) await filters.click();
   await page.locator('#domain').selectOption('Fundamentals');

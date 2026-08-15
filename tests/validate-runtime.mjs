@@ -3,8 +3,12 @@ import { readFile } from 'node:fs/promises';
 
 const page = await readFile(new URL('../app/page.tsx', import.meta.url), 'utf8');
 const layout = await readFile(new URL('../app/layout.tsx', import.meta.url), 'utf8');
-for (const requirement of ['Play a new round', 'Resume my round', 'Random topics', 'Reveal answer', 'Next question', 'flashcard', 'localStorage', 'alternateForm', 'Reward unlocked', 'PNLE · Philippines', 'nurse-quest-custom-flashcards-v1', 'Add to my']) {
+const questionLibrary = await readFile(new URL('../lib/questions.ts', import.meta.url), 'utf8');
+for (const requirement of ['Play a new round', 'Resume my round', 'Random topics', 'Reveal answer', 'Next question', 'flashcard', 'localStorage', 'alternateForm', 'Reward unlocked', 'PNLE · Philippines', 'nurse-quest-custom-flashcards-v1', 'Add to my', 'snle-question-set']) {
   assert.ok(page.includes(requirement), `App Router page must contain ${requirement}`);
+}
+for (const label of ['Doctor18 SNLE Mock Exam', 'snle-mock-exam-part-1-readable.md', 'snle-mock-exam-part-2-readable.md']) {
+  assert.ok(questionLibrary.includes(label), `SNLE set metadata must include ${label}`);
 }
 assert.match(layout, /metadata/, 'root layout must declare deployable page metadata');
 console.log('PASS: App Router study page includes the required practice, reveal, progress, alternate-form, and flashcard flows.');

@@ -1,6 +1,7 @@
 import { FUNDAMENTALS_ADULT_TEMPLATES } from '../content-fundamentals-adult';
 import { MATERNAL_CHILD_LEADERSHIP_TEMPLATES } from '../content-maternal-child-leadership';
 import { SNLE_EXPANSION_TEMPLATES } from '../content-snle-expansion';
+import { DOCTOR18_SNLE_MOCK_EXAM_TEMPLATES, SNLE_MOCK_EXAM_PART_1_READABLE_TEMPLATES, SNLE_MOCK_EXAM_PART_2_READABLE_TEMPLATES } from '../content-snle-practice-sets';
 import { PNLE_TEMPLATES } from '../content-pnle';
 import { PNLE_EXPANSION_TEMPLATES } from '../content-pnle-expansion';
 import { USRN_TEMPLATES } from '../content-usrn';
@@ -11,11 +12,21 @@ export type Domain = 'Fundamentals' | 'Adult Nursing' | 'Maternal–Child' | 'Ma
 export type PnleDomain = 'Nursing Practice I' | 'Nursing Practice II' | 'Nursing Practice III' | 'Nursing Practice IV' | 'Nursing Practice V';
 export type UsrnDomain = 'Management of Care' | 'Safety and Infection Control' | 'Health Promotion and Maintenance' | 'Psychosocial Integrity' | 'Basic Care and Comfort' | 'Pharmacological and Parenteral Therapies' | 'Reduction of Risk Potential' | 'Physiological Adaptation';
 export type LibraryDomain = Domain | PnleDomain | UsrnDomain;
+export type SnleQuestionSetId = 'nurse-quest-originals' | 'doctor18-snle-mock-exam' | 'snle-mock-exam-part-1-readable' | 'snle-mock-exam-part-2-readable';
+export type SnleQuestionSet = { id: SnleQuestionSetId; label: string; description: string };
+
+export const snleQuestionSets: SnleQuestionSet[] = [
+  { id: 'nurse-quest-originals', label: 'Nurse Quest originals', description: 'The complete original Nurse Quest SNLE bank.' },
+  { id: 'doctor18-snle-mock-exam', label: 'Doctor18 SNLE Mock Exam', description: 'Fresh original teaching scenarios for this practice set.' },
+  { id: 'snle-mock-exam-part-1-readable', label: 'snle-mock-exam-part-1-readable.md', description: 'Fresh original teaching scenarios for this practice set.' },
+  { id: 'snle-mock-exam-part-2-readable', label: 'snle-mock-exam-part-2-readable.md', description: 'Fresh original teaching scenarios for this practice set.' },
+];
 
 export type Question = {
   id: string;
   templateId: string;
   track: StudyTrack;
+  questionSet?: SnleQuestionSetId;
   topic: string;
   domain: LibraryDomain;
   stem: string;
@@ -56,13 +67,14 @@ const usrnDomainFor = (topic: string): UsrnDomain => {
 
 const questionTail = (stem: string) => /\?$/.test(stem.trim()) ? '' : ' What is the nurse’s best action?';
 
-function expandTemplates(raw: RawTemplate[], track: StudyTrack, getDomain: (topic: string) => LibraryDomain): Question[] {
+function expandTemplates(raw: RawTemplate[], track: StudyTrack, getDomain: (topic: string) => LibraryDomain, questionSet?: SnleQuestionSetId): Question[] {
   return raw.flatMap((template) => {
     const contexts = template.scenarioVariants || template.variants || [];
     return [template.stem, ...contexts].map((stem, index) => ({
       id: `${template.id}-${index}`,
       templateId: template.id,
       track,
+      questionSet,
       topic: template.topic,
       domain: getDomain(template.topic),
       stem: index === 0 ? template.stem : `${stem}${questionTail(stem)}`,
@@ -75,7 +87,12 @@ function expandTemplates(raw: RawTemplate[], track: StudyTrack, getDomain: (topi
   });
 }
 
-export const snleQuestions = expandTemplates(snleRaw, 'SNLE', snleDomainFor);
+export const snleQuestions = [
+  ...expandTemplates(snleRaw, 'SNLE', snleDomainFor, 'nurse-quest-originals'),
+  ...expandTemplates(DOCTOR18_SNLE_MOCK_EXAM_TEMPLATES as RawTemplate[], 'SNLE', snleDomainFor, 'doctor18-snle-mock-exam'),
+  ...expandTemplates(SNLE_MOCK_EXAM_PART_1_READABLE_TEMPLATES as RawTemplate[], 'SNLE', snleDomainFor, 'snle-mock-exam-part-1-readable'),
+  ...expandTemplates(SNLE_MOCK_EXAM_PART_2_READABLE_TEMPLATES as RawTemplate[], 'SNLE', snleDomainFor, 'snle-mock-exam-part-2-readable'),
+];
 export const pnleQuestions = expandTemplates(pnleRaw, 'PNLE', pnleDomainFor);
 export const usrnQuestions = expandTemplates(usrnRaw, 'USRN', usrnDomainFor);
 export const questions: Question[] = [...snleQuestions, ...pnleQuestions, ...usrnQuestions];
