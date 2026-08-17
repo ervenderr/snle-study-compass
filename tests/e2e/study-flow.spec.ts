@@ -1,5 +1,20 @@
 import { expect, test } from '@playwright/test';
 
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/auth/get-session', route => route.fulfill({ json: { user: { id: 'test-learner', name: 'Test learner', email: 'learner@example.com' } } }));
+  await page.route('**/api/sync', route => route.fulfill({ json: { flashcards: [], progress: {}, players: {}, savedSession: null } }));
+});
+
+test('a guest lands on the welcome page and must sign in to study', async ({ page }) => {
+  await page.route('**/api/auth/get-session', route => route.fulfill({ json: null }));
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: /Your calm corner/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Create your free account/i })).toBeVisible();
+  await page.getByRole('button', { name: /I already have an account/i }).click();
+  await expect(page.getByRole('heading', { name: /Come in/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Practice', exact: true })).toHaveCount(0);
+});
+
 test('learner can practise, reveal a rationale, continue, and review a flashcard', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', error => pageErrors.push(error.message));

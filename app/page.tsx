@@ -1,11 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import Image from 'next/image';
 import { domainReferences, domainsForTrack, questions, snleQuestionSets, type LibraryDomain, type Question, type SnleQuestionSetId } from '../lib/questions';
 import { studyResources, type StudyTrack } from '../lib/resources';
 
-type View = 'home' | 'practiceSetup' | 'snleSetSetup' | 'study' | 'flashcards' | 'flashcardStudy' | 'rewards' | 'resources' | 'account';
+type View = 'landing' | 'home' | 'practiceSetup' | 'snleSetSetup' | 'study' | 'flashcards' | 'flashcardStudy' | 'rewards' | 'resources' | 'account';
 type Mode = 'Random topics' | 'Fresh in selection' | 'All scenario forms' | 'Review incorrect' | 'Weak spots rescue';
 type Confidence = 'confident' | 'unsure' | 'guessed';
 type StudyRecord = { correct: boolean; selected: number; answeredAt: string; alternate: boolean; confidence?: Confidence };
@@ -71,7 +70,7 @@ function alternateForm(question: Question): Question {
 }
 
 export default function StudyCompass() {
-  const [view, setView] = useState<View>('home');
+  const [view, setView] = useState<View>('landing');
   const [examTrack, setExamTrack] = useState<StudyTrack>('SNLE');
   const [snleQuestionSet, setSnleQuestionSet] = useState<SnleQuestionSetId>('nurse-quest-originals');
   const [domain, setDomain] = useState<LibraryDomain | 'All domains'>('All domains');
@@ -100,6 +99,8 @@ export default function StudyCompass() {
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountError, setAccountError] = useState('');
   const [accountMode, setAccountMode] = useState<'signin' | 'signup'>('signin');
+  const [showPassword, setShowPassword] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [cloudReady, setCloudReady] = useState(false);
   const [cloudStatus, setCloudStatus] = useState<'local' | 'syncing' | 'saved' | 'pending'>('local');
   const skipInitialSessionWrite = useRef(true);
@@ -148,13 +149,14 @@ export default function StudyCompass() {
     setAccountLoading(true);
     try {
       const session = await api<{ user?: AccountUser }>('/auth/get-session');
-      if (!session.user) { setCloudReady(false); setCloudStatus('local'); return; }
+      if (!session.user) { setAccountUser(null); setCloudReady(false); setCloudStatus('local'); return; }
       setAccountUser(session.user);
       const snapshot = await api<CloudSnapshot>('/sync');
       applyCloudSnapshot(snapshot);
       setCloudReady(true); setCloudStatus('saved');
-    } catch { setCloudReady(false); setCloudStatus('local'); }
-    finally { setAccountLoading(false); }
+      setView(current => current === 'landing' ? 'home' : current);
+    } catch { setAccountUser(null); setCloudReady(false); setCloudStatus('local'); }
+    finally { setAuthChecked(true); setAccountLoading(false); }
   }, [applyCloudSnapshot]);
 
   const syncCloud = useCallback(async () => {
@@ -325,10 +327,14 @@ export default function StudyCompass() {
   };
   const signOut = async () => {
     try { await api('/auth/sign-out', { method: 'POST', body: JSON.stringify({}) }); } catch {}
-    setAccountUser(null); setCloudReady(false); setCloudStatus('local'); navigate('home');
+    setAccountUser(null); setCloudReady(false); setCloudStatus('local'); navigate('landing');
   };
 
-  const navigate = (next: View) => { setView(next); setSelected(null); setRevealed(false); };
+  const openAccount = (nextMode: 'signin' | 'signup' = 'signin') => { setAccountMode(nextMode); setAccountError(''); setShowPassword(false); setView('account'); };
+  const navigate = (next: View) => {
+    if (!accountUser && next !== 'landing' && next !== 'account') { openAccount('signin'); return; }
+    setView(next); setSelected(null); setRevealed(false);
+  };
   const closePepTalk = () => { setPepTalk(null); try { window.localStorage.setItem(pepTalkKey, 'seen'); } catch {} };
   const openTrack = (track: StudyTrack) => { setResourceTrack(track); setView('resources'); };
   const chooseDomain = (nextDomain: LibraryDomain) => { setDomain(nextDomain); setTopic('All topics'); setMode('Fresh in selection'); startQuestion(examTrack, nextDomain, 'All topics', 'Fresh in selection'); setView('study'); };
@@ -361,24 +367,28 @@ export default function StudyCompass() {
   const openNewRound = () => examTrack === 'SNLE' ? setView('snleSetSetup') : selectTrack(examTrack, true);
 
   const header = (active: View) => <header className="nav">
-    <button className="brand" onClick={() => navigate('home')} aria-label="Nurse Quest home"><span className="mark">N</span> Nurse Quest</button>
-    <div className="nav-actions">
+    <button className="brand" onClick={() => navigate(accountUser ? 'home' : 'landing')} aria-label="Nurse Quest home"><span className="mark">N</span> Nurse Quest</button>
+    {!accountUser ? <div className="nav-actions"><button className="nav-link" onClick={() => openAccount('signin')}>Sign in</button><button className="primary nav-cta" onClick={() => openAccount('signup')}>Create account</button></div> : <div className="nav-actions">
       <button className={`nav-link ${active === 'home' ? 'active' : ''}`} onClick={() => navigate('home')}>Overview</button>
       <button className={`nav-link ${active === 'study' || active === 'practiceSetup' || active === 'snleSetSetup' ? 'active' : ''}`} onClick={() => navigate('practiceSetup')}>Practice</button>
       <button className={`nav-link ${active === 'flashcards' ? 'active' : ''}`} onClick={() => navigate('flashcards')}>Flashcards</button>
       <button className={`nav-link ${active === 'rewards' ? 'active' : ''}`} onClick={() => navigate('rewards')}>Rewards</button>
       <button className={`nav-link ${active === 'resources' ? 'active' : ''}`} onClick={() => openTrack(examTrack)}>Library</button>
-      <button className={`nav-link ${active === 'account' ? 'active' : ''}`} onClick={() => navigate('account')}>{accountUser ? 'Account' : 'Sign in'}</button>
-    </div>
+      <button className={`nav-link ${active === 'account' ? 'active' : ''}`} onClick={() => navigate('account')}>Account</button>
+    </div>}
   </header>;
 
+  if (!authChecked) return <main className="shell"><section className="auth-loading" aria-live="polite"><span className="mark">N</span><p>Opening your study space…</p></section></main>;
+
+  if (!accountUser && view === 'landing') return <main className="shell landing-shell">{header('landing')}<section className="landing-hero"><div className="landing-copy"><p className="eyebrow">Nursing exam practice, made personal</p><h1>Your calm corner<br />for the next exam.</h1><p>Original SNLE, PNLE, and USRN practice, flashcards, focused rescue rounds, and progress that follows you from one study session to the next.</p><div className="hero-buttons"><button className="primary" onClick={() => openAccount('signup')}>Create your free account <span aria-hidden="true">→</span></button><button className="secondary" onClick={() => openAccount('signin')}>I already have an account</button></div><p className="landing-note">Your study history stays private to your account.</p></div><div className="landing-preview" aria-label="A preview of the Nurse Quest study experience"><div className="preview-glow" /><p className="eyebrow">Your next session</p><div className="preview-question"><span>SNLE · Fundamentals</span><h2>One clear question at a time.</h2><div><i /><i /><i /><i /></div></div><div className="preview-stats"><span>✦ Weak spots rescue</span><span>☁ Progress saved</span></div></div></section><section className="landing-benefits"><article><span>🧠</span><h2>Practice with purpose</h2><p>Choose a question library, a domain, or a focused round whenever you sit down.</p></article><article><span>🗂️</span><h2>Make it yours</h2><p>Build private flashcards from your own notes and review them on your schedule.</p></article><article><span>↗</span><h2>Pick up anywhere</h2><p>Your questions, rewards, cards, and current round are kept with your account.</p></article></section></main>;
+
   if (view === 'account') return <main className="shell">{header('account')}<section className="custom-flashcard-panel" style={{ marginTop: 0 }}>
-    {accountUser ? <><div><p className="eyebrow">Cloud study space</p><h1 className="page-title">Hi, {accountUser.name || 'learner'}.</h1><p>Your flashcards, progress, rewards, and saved round are linked to this account.</p><p className="source-note">Sync status: <b>{cloudStatus === 'saved' ? 'Saved to your account' : cloudStatus === 'syncing' ? 'Saving…' : cloudStatus === 'pending' ? 'Saved on this device; waiting to sync' : 'Using this device only'}</b></p></div><div className="custom-flashcard-form"><p><b>{accountUser.email}</b></p><button className="primary" type="button" onClick={() => void syncCloud()} disabled={cloudStatus === 'syncing'}>Sync now</button><button className="secondary" type="button" onClick={() => void signOut()}>Sign out</button></div></> : <><div><p className="eyebrow">Keep your study safe</p><h1 className="page-title">Your cards,<br />wherever you study.</h1><p>Create an account to save flashcards, progress, XP, and your current round beyond this browser.</p></div><form className="custom-flashcard-form" onSubmit={submitAccount}>
+    {accountUser ? <><div><p className="eyebrow">Cloud study space</p><h1 className="page-title">Hi, {accountUser.name || 'learner'}.</h1><p>Your flashcards, progress, rewards, and saved round are linked to this account.</p><p className="source-note">Sync status: <b>{cloudStatus === 'saved' ? 'Saved to your account' : cloudStatus === 'syncing' ? 'Saving…' : cloudStatus === 'pending' ? 'Saved on this device; waiting to sync' : 'Using this device only'}</b></p></div><div className="custom-flashcard-form"><p><b>{accountUser.email}</b></p><button className="primary" type="button" onClick={() => void syncCloud()} disabled={cloudStatus === 'syncing'}>Sync now</button><button className="secondary" type="button" onClick={() => void signOut()}>Sign out</button></div></> : <><div><p className="eyebrow">Your private study space</p><h1 className="page-title">Come in.<br />Your progress is here.</h1><p>{accountMode === 'signin' ? 'Sign in to continue your questions, flashcards, rewards, and rescue rounds.' : 'Create your account once, then come back to the same progress on any device.'}</p><ul className="account-trust"><li>Private progress and flashcards</li><li>Secure, signed-in sessions</li><li>No Google account required</li></ul></div><form className="custom-flashcard-form account-form" onSubmit={submitAccount}>
       <div className="track-toggle"><button type="button" className={accountMode === 'signin' ? 'selected' : ''} onClick={() => { setAccountMode('signin'); setAccountError(''); }}>Sign in</button><button type="button" className={accountMode === 'signup' ? 'selected' : ''} onClick={() => { setAccountMode('signup'); setAccountError(''); }}>Create account</button></div>
-      {accountMode === 'signup' && <><label htmlFor="account-name">Name</label><input id="account-name" name="name" required minLength={2} maxLength={80} /></>}
-      <label htmlFor="account-email">Email</label><input id="account-email" name="email" type="email" required autoComplete="email" />
-      <label htmlFor="account-password">Password <span>At least 12 characters</span></label><input id="account-password" name="password" type="password" required minLength={12} maxLength={128} autoComplete={accountMode === 'signin' ? 'current-password' : 'new-password'} />
-      <div className="custom-form-foot"><small>Your password is never stored in plain text.</small><button className="primary" type="submit" disabled={accountLoading}>{accountLoading ? 'Please wait…' : accountMode === 'signin' ? 'Sign in →' : 'Create my account →'}</button></div>{accountError && <p className="custom-card-error" role="alert">{accountError}</p>}
+      {accountMode === 'signup' && <><label htmlFor="account-name">First name</label><input id="account-name" name="name" required minLength={2} maxLength={80} autoComplete="given-name" placeholder="How should we call you?" /></>}
+      <label htmlFor="account-email">Email address</label><input id="account-email" name="email" type="email" required autoComplete="email" placeholder="you@example.com" />
+      <label htmlFor="account-password">Password <span>At least 12 characters</span></label><div className="password-field"><input id="account-password" name="password" type={showPassword ? 'text' : 'password'} required minLength={12} maxLength={128} autoComplete={accountMode === 'signin' ? 'current-password' : 'new-password'} placeholder={accountMode === 'signin' ? 'Your password' : 'Create a strong password'} /><button type="button" onClick={() => setShowPassword(current => !current)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? 'Hide' : 'Show'}</button></div>
+      <div className="custom-form-foot"><small>{accountMode === 'signin' ? 'Welcome back — your learning space is waiting.' : 'Your password is never stored in plain text.'}</small><button className="primary" type="submit" disabled={accountLoading}>{accountLoading ? 'Please wait…' : accountMode === 'signin' ? 'Continue →' : 'Create my account →'}</button></div>{accountError && <p className="custom-card-error" role="alert">{accountError}</p>}
     </form></>}
   </section></main>;
 
@@ -456,7 +466,7 @@ export default function StudyCompass() {
     <div className="library-picker" aria-label="Choose question library"><button className={`library-choice ${examTrack === 'SNLE' ? 'selected' : ''}`} onClick={() => selectTrack('SNLE')}><span>🇸🇦</span><b>SNLE · Saudi Arabia</b><small>60 original core questions</small></button><button className={`library-choice ${examTrack === 'PNLE' ? 'selected' : ''}`} onClick={() => selectTrack('PNLE')}><span>🇵🇭</span><b>PNLE · Philippines</b><small>20 original core questions</small></button><button className={`library-choice ${examTrack === 'USRN' ? 'selected' : ''}`} onClick={() => selectTrack('USRN')}><span>🇺🇸</span><b>USRN · NCLEX-RN 2026</b><small>40 original NCLEX-RN questions</small></button></div>
     <p className="library-rule home-rule">Only one library is active at a time: questions, flashcards, progress, XP, and rewards never mix between exams.</p>
     <div className="hero-buttons"><button className="primary" onClick={openNewRound}>Play a new round <span aria-hidden="true">→</span></button>{savedSession && <button className="secondary" onClick={resumeSession}>Resume my round</button>}<button className="secondary" onClick={() => openTrack(examTrack)}>Open study library</button></div>
-  </div><aside className="focus-card game-card"><Image className="cat-meme" src="https://cataas.com/cat/says/You%20got%20this%20girl?fontSize=28&fontColor=765792&width=900" width={900} height={900} unoptimized alt="A cat meme saying you got this girl" /><div className="player-card-copy"><p className="eyebrow">{trackLabel} · player card</p><div className="level-orb">{level}</div><h2>Level {level} learner<br /><em>{player.xp} XP collected</em></h2><div className="mini-progress">{Array.from({ length: 8 }, (_, index) => <span className={index < Math.round((player.xp % 100) / 12.5) ? 'done' : ''} key={index} />)}</div><p>{nextReward ? `${Math.max(0, nextReward.threshold - player.correct)} more correct answer${nextReward.threshold - player.correct === 1 ? '' : 's'} to unlock ${nextReward.emoji} ${nextReward.title}.` : 'Every badge is yours—keep your streak glowing.'}</p></div></aside></section>
+  </div><aside className="focus-card game-card"><div className="study-companion" aria-hidden="true"><span className="companion-spark">✦</span><span className="companion-book">✚</span><span className="companion-dots">● ● ●</span></div><div className="player-card-copy"><p className="eyebrow">{trackLabel} · player card</p><div className="level-orb">{level}</div><h2>Level {level} learner<br /><em>{player.xp} XP collected</em></h2><div className="mini-progress">{Array.from({ length: 8 }, (_, index) => <span className={index < Math.round((player.xp % 100) / 12.5) ? 'done' : ''} key={index} />)}</div><p>{nextReward ? `${Math.max(0, nextReward.threshold - player.correct)} more correct answer${nextReward.threshold - player.correct === 1 ? '' : 's'} to unlock ${nextReward.emoji} ${nextReward.title}.` : 'Every badge is yours—keep your streak glowing.'}</p></div></aside></section>
   <section className="section"><div className="section-head"><div><p className="eyebrow">{trackLabel} · Pick your lane</p><h2>Practice by blueprint domain</h2></div><p>Tap a domain to start a focused set.</p></div><div className="grid">{activeDomains.map(item => <button className="topic-card" key={item.name} onClick={() => chooseDomain(item.name)}><span className="count">{item.target} TARGET · {domainStats(item.name).total} FORMS</span><h3>{item.name}</h3><p>{item.summary}</p></button>)}</div></section>
   <section className="section history"><article className="panel"><h3>Coverage, at a glance</h3>{activeDomains.map(item => { const stat = domainStats(item.name); const complete = stat.total ? Math.round(stat.done / stat.total * 100) : 0; return <div className="progress-row" key={item.name}><span>{item.name}</span><div className="bar"><i style={{ width: `${complete}%` }} /></div><b>{complete}%</b></div>; })}</article><article className="panel"><h3>Study sources for this library</h3><p className="empty">The blueprint guides the mix. Every domain points toward a public official safety, scope, or blueprint reference.</p><div className="source-list">{activeDomains.map(item => <a key={item.name} href={domainReferences[item.name].href} target="_blank" rel="noreferrer"><span>{item.name}</span>{domainReferences[item.name].title} ↗</a>)}</div><p className="source-note">Full official and commercial resource list: <button onClick={() => openTrack(examTrack)}>Study Library</button>.</p></article></section>
   {pepTalk && <aside className="pep-popup" role="dialog" aria-label="A little encouragement"><span>{pepTalk.emoji}</span><div><b>{pepTalk.title}</b><p>{pepTalk.message}</p></div><button onClick={closePepTalk} aria-label="Close encouragement">×</button></aside>}
