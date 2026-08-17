@@ -167,9 +167,15 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
       const session = await api<{ user?: AccountUser }>('/auth/get-session');
       if (!session.user) { setAccountUser(null); setCloudReady(false); setCloudStatus('local'); return; }
       setAccountUser(session.user);
-      const snapshot = await api<CloudSnapshot>('/sync');
-      applyCloudSnapshot(snapshot);
-      setCloudReady(true); setCloudStatus('saved');
+      try {
+        const snapshot = await api<CloudSnapshot>('/sync');
+        applyCloudSnapshot(snapshot);
+        setCloudStatus('saved');
+      } catch {
+        // A temporary sync outage must not turn an authenticated learner into a guest.
+        setCloudStatus('pending');
+      }
+      setCloudReady(true);
       setView(current => current === 'landing' ? 'home' : current);
     } catch { setAccountUser(null); setCloudReady(false); setCloudStatus('local'); }
     finally { setAuthChecked(true); setAccountLoading(false); }

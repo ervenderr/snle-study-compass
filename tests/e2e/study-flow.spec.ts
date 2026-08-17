@@ -23,6 +23,17 @@ test('a guest lands on the welcome page and must sign in to study', async ({ pag
   await expect(page.getByRole('button', { name: 'Practice', exact: true })).toHaveCount(0);
 });
 
+test('a temporary cloud-sync failure does not sign out an authenticated learner', async ({ page }) => {
+  await page.unroute('**/api/sync');
+  await page.route('**/api/sync', route => route.fulfill({ status: 503, json: { error: 'Sync is temporarily unavailable.' } }));
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: /One question/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Practice', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Practice', exact: true }).click();
+  await expect(page.getByRole('heading', { name: /Which exam are we/i })).toBeVisible();
+});
+
 test('learner can practise, reveal a rationale, continue, and review a flashcard', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', error => pageErrors.push(error.message));
