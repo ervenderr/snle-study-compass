@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { domainReferences, domainsForTrack, questions, snleQuestionSets, usrnQuestionSets, type LibraryDomain, type Question, type QuestionSetId, type SnleQuestionSetId, type UsrnQuestionSetId } from '../lib/questions';
 import { studyResources, type StudyTrack } from '../lib/resources';
 
-type View = 'landing' | 'home' | 'practiceSetup' | 'snleSetSetup' | 'usrnSetSetup' | 'study' | 'results' | 'flashcards' | 'flashcardStudy' | 'rewards' | 'resources' | 'account';
+type View = 'landing' | 'home' | 'practiceSetup' | 'snleSetSetup' | 'usrnSetSetup' | 'study' | 'results' | 'flashcards' | 'flashcardList' | 'flashcardStudy' | 'rewards' | 'resources' | 'account';
 type Mode = 'Random topics' | 'Fresh in selection' | 'All scenario forms' | 'Review incorrect' | 'Weak spots rescue';
 type Confidence = 'confident' | 'unsure' | 'guessed';
 type StudyRecord = { correct: boolean; selected: number[]; answeredAt: string; alternate: boolean; confidence?: Confidence };
@@ -20,7 +20,7 @@ type CloudSnapshot = { flashcards: CustomFlashcard[]; progress: Progress; player
 type CompletedRound = { track: StudyTrack; questionSet?: QuestionSetId; domain: LibraryDomain | 'All domains'; topic: string; mode: Mode };
 type Celebration = { title: string; message: string; emoji: string } | null;
 type PepTalk = { title: string; message: string; emoji: string } | null;
-type StudyCompassProps = { initialView?: View; initialTrack?: StudyTrack; initialSnleQuestionSet?: SnleQuestionSetId; initialUsrnQuestionSet?: UsrnQuestionSetId };
+type StudyCompassProps = { initialView?: View; initialTrack?: StudyTrack; initialSnleQuestionSet?: SnleQuestionSetId; initialUsrnQuestionSet?: UsrnQuestionSetId; initialFlashcardMode?: 'clinical' | 'custom' };
 
 const storageKey = 'snle-study-compass-progress-v2';
 const sessionKey = 'snle-study-compass-session-v1';
@@ -28,6 +28,7 @@ const playerKey = 'snle-study-compass-player-v1';
 const pepTalkKey = 'nurse-quest-pep-talk-v1';
 const customFlashcardsKey = 'nurse-quest-custom-flashcards-v1';
 const deletedFlashcardsKey = 'nurse-quest-deleted-flashcards-v1';
+const accountKey = 'nurse-quest-account-v1';
 const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const rewards = [
   { id: 'spark', threshold: 1, emoji: '⭐', title: 'First Spark', message: 'One correct answer is a real beginning.' },
@@ -69,13 +70,14 @@ function loadCustomFlashcards(): CustomFlashcard[] {
   } catch { return []; }
 }
 function loadDeletedFlashcards(): string[] { try { const saved = JSON.parse(window.localStorage.getItem(deletedFlashcardsKey) || '[]') as unknown; return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string') : []; } catch { return []; } }
+function loadAccountUser(): AccountUser | null { try { const saved = JSON.parse(window.localStorage.getItem(accountKey) || 'null') as Partial<AccountUser> | null; return saved && typeof saved.id === 'string' && typeof saved.name === 'string' && typeof saved.email === 'string' ? saved as AccountUser : null; } catch { return null; } }
 
 function alternateForm(question: Question): Question {
   const frames = ['During a focused clinical handover, ', 'In a comparable but newly presented scenario, ', 'While prioritizing care on a busy shift, ', 'During a safety review with the nursing team, '];
   return { ...question, id: `${question.id}-alt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, stem: `${randomItem(frames)}${question.stem.charAt(0).toLowerCase()}${question.stem.slice(1)}`, isAlternateForm: true };
 }
 
-export default function StudyCompass({ initialView = 'landing', initialTrack = 'SNLE', initialSnleQuestionSet = 'nurse-quest-originals', initialUsrnQuestionSet = 'nurse-quest-originals' }: StudyCompassProps) {
+export default function StudyCompass({ initialView = 'landing', initialTrack = 'SNLE', initialSnleQuestionSet = 'nurse-quest-originals', initialUsrnQuestionSet = 'nurse-quest-originals', initialFlashcardMode = 'custom' }: StudyCompassProps) {
   const router = useRouter();
   const [view, setView] = useState<View>(initialView);
   const [examTrack, setExamTrack] = useState<StudyTrack>(initialTrack);
@@ -97,6 +99,7 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
   const [customFront, setCustomFront] = useState('');
   const [customBack, setCustomBack] = useState('');
   const [customFlashcardError, setCustomFlashcardError] = useState('');
+  const [flashcardSuccess, setFlashcardSuccess] = useState<string | null>(null);
   const [savedSession, setSavedSession] = useState<SavedSession | null>(null);
   const [storageLoaded, setStorageLoaded] = useState(false);
   const [players, setPlayers] = useState<Players>({ SNLE: emptyPlayer(), PNLE: emptyPlayer(), USRN: emptyPlayer() });
@@ -115,6 +118,7 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
   const [completedRound, setCompletedRound] = useState<CompletedRound | null>(null);
   const skipInitialSessionWrite = useRef(true);
   const initialStudyRoute = useRef<string | null>(null);
+  const initialFlashcardRoute = useRef(false);
   const activeQuestionSet = examTrack === 'SNLE' ? snleQuestionSet : examTrack === 'USRN' ? usrnQuestionSet : undefined;
   const allTrackQuestions = useMemo(() => questions.filter(question => question.track === examTrack && (examTrack === 'PNLE' || question.questionSet === activeQuestionSet)), [activeQuestionSet, examTrack]);
   const activeQuestions = useMemo(() => allTrackQuestions.filter(question => question.variantNumber === 0), [allTrackQuestions]);
@@ -167,8 +171,9 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
     try {
       const session = await api<{ user?: AccountUser } | null>('/auth/get-session');
       setAuthUnavailable(false);
-      if (!session?.user) { setAccountUser(null); setCloudReady(false); setCloudStatus('local'); return; }
+      if (!session?.user) { try { window.localStorage.removeItem(accountKey); } catch {} setAccountUser(null); setCloudReady(false); setCloudStatus('local'); return; }
       setAccountUser(session.user);
+      try { window.localStorage.setItem(accountKey, JSON.stringify(session.user)); } catch {}
       try {
         const snapshot = await api<CloudSnapshot>('/sync');
         applyCloudSnapshot(snapshot);
@@ -180,8 +185,10 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
       setCloudReady(true);
       setView(current => current === 'landing' ? 'home' : current);
     } catch {
-      // Do not mislabel a temporary session-check failure as a logout.
-      setCloudReady(false); setCloudStatus('pending'); setAuthUnavailable(true);
+      // Keep a previously verified account usable while the session service reconnects.
+      const cachedAccount = loadAccountUser();
+      if (cachedAccount) { setAccountUser(cachedAccount); setCloudReady(false); setCloudStatus('pending'); setAuthUnavailable(false); setView(current => current === 'landing' ? 'home' : current); }
+      else { setCloudReady(false); setCloudStatus('pending'); setAuthUnavailable(true); }
     }
     finally { setAuthChecked(true); setAccountLoading(false); }
   }, [applyCloudSnapshot]);
@@ -337,6 +344,15 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
     if (unseen.length) { setCurrent(randomItem(unseen)); setSelected([]); setRevealed(false); }
     else { setCompletedRound({ track: initialTrack, questionSet: initialSet, domain: 'All domains', topic: 'All topics', mode: 'Random topics' }); setView('results'); }
   }, [accountUser, initialSnleQuestionSet, initialTrack, initialUsrnQuestionSet, initialView, progress, savedSession, storageLoaded]);
+  useEffect(() => {
+    if (initialView !== 'flashcardStudy' || initialFlashcardRoute.current || !accountUser || !storageLoaded || accountLoading) return;
+    const pool: Array<Question | CustomFlashcard> = initialFlashcardMode === 'custom' ? customFlashcards.filter(card => card.track === examTrack) : activeQuestions;
+    if (!pool.length) {
+      if (initialFlashcardMode === 'custom' && !cloudReady) return;
+      initialFlashcardRoute.current = true; setView('flashcards'); return;
+    }
+    initialFlashcardRoute.current = true; setFlashcardMode(initialFlashcardMode); setCurrentFlashcard(randomItem(pool)); setFlipped(new Set()); setView('flashcardStudy');
+  }, [accountLoading, accountUser, activeQuestions, cloudReady, customFlashcards, examTrack, initialFlashcardMode, initialView, storageLoaded]);
   const saveConfidence = (confidence: Confidence) => {
     const existing = progress[current.id];
     if (!existing) return;
@@ -359,7 +375,7 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
     if (!front || !back) { setCustomFlashcardError('Add both the front and the answer before saving your card.'); return; }
     const now = new Date().toISOString();
     persistCustomFlashcards([...customFlashcards, { id: `my-card-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, track: examTrack, front, back, createdAt: now, dueAt: now, intervalDays: 0, reviewCount: 0, updatedAt: now }]);
-    setCustomFront(''); setCustomBack('');
+    setCustomFront(''); setCustomBack(''); setFlashcardSuccess(front);
   };
   const reviewCustomFlashcard = (id: string, remembered: boolean) => {
     const reviewTime = Date.now();
@@ -397,6 +413,7 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
   };
   const signOut = async () => {
     try { await api('/auth/sign-out', { method: 'POST', body: JSON.stringify({}) }); } catch {}
+    try { window.localStorage.removeItem(accountKey); } catch {}
     setAccountUser(null); setCloudReady(false); setCloudStatus('local'); setAuthUnavailable(false); navigate('landing');
   };
 
@@ -422,11 +439,7 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
   const customCardsForTrack = customFlashcards.filter(card => card.track === examTrack);
   const dueCustomCards = customCardsForTrack.filter(card => new Date(card.dueAt).getTime() <= Date.now());
   const flashcardPool = (nextMode = flashcardMode): Array<Question | CustomFlashcard> => nextMode === 'custom' ? (dueCustomCards.length ? dueCustomCards : customCardsForTrack) : flashcards;
-  const startFlashcardRound = (nextMode: 'clinical' | 'custom') => {
-    const pool = flashcardPool(nextMode);
-    if (!pool.length) return;
-    setFlashcardMode(nextMode); setCurrentFlashcard(randomItem(pool)); setFlipped(new Set()); setView('flashcardStudy');
-  };
+  const startFlashcardRound = (nextMode: 'clinical' | 'custom') => router.push(nextMode === 'custom' ? '/flashcards/deck' : '/flashcards/clinical-deck');
   const nextFlashcard = () => {
     const pool = flashcardPool();
     const options = pool.filter(card => card.id !== currentFlashcard?.id);
@@ -502,12 +515,16 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
     const removeCurrentCard = () => {
       deleteCustomFlashcard(currentFlashcard.id);
       const remaining = customCardsForTrack.filter(card => card.id !== currentFlashcard.id);
-      if (remaining.length) { setCurrentFlashcard(randomItem(remaining)); setFlipped(new Set()); } else { navigate('flashcards'); }
+      if (remaining.length) { setCurrentFlashcard(randomItem(remaining)); setFlipped(new Set()); } else { router.push('/flashcards'); }
     };
-    return <main className="shell">{header('flashcards')}<section className="flashcard-study" style={{ marginTop: 0 }}><button className="back-link" onClick={() => navigate('flashcards')}>← Back to flashcards</button><p className="eyebrow">{customCard ? `My ${examTrack} deck` : `${trackLabel} · clinical anchors`}</p><h1 className="page-title">One calm card<br />at a time.</h1><p className="flashcard-study-copy">{customCard ? 'Say the answer first, then flip it. Rate it honestly and let the little deck work for you.' : 'A fresh clinical anchor, chosen at random. Think first, then tap to reveal.'}</p><article className="single-flashcard"><button type="button" className={`flashcard ${isFlipped ? 'flipped' : ''}`} onClick={() => setFlipped(previous => { const next = new Set(previous); next.has(currentFlashcard.id) ? next.delete(currentFlashcard.id) : next.add(currentFlashcard.id); return next; })}><span className="front">{customCard ? `My ${examTrack} card` : clinicalCard.topic}</span><h2>{customCard ? personalCard.front : clinicalCard.stem}</h2><p className="front">Tap to reveal</p><div className="back"><span className="back-label">{customCard ? 'Your answer / note' : 'Best response'}</span><h2>{customCard ? personalCard.back : clinicalCard.choices[clinicalCard.correctIndex]}</h2><p>{customCard ? (personalCard.reviewCount ? `Reviewed ${personalCard.reviewCount} time${personalCard.reviewCount === 1 ? '' : 's'}.` : 'A fresh card—nice one.') : clinicalCard.rationale}</p></div></button>{isFlipped && customCard && <div className="single-flashcard-actions"><button className="secondary" type="button" onClick={() => { reviewCustomFlashcard(currentFlashcard.id, false); nextFlashcard(); }}>Again · 10 min</button><button className="primary" type="button" onClick={() => { reviewCustomFlashcard(currentFlashcard.id, true); nextFlashcard(); }}>Got it · {nextInterval} day{nextInterval === 1 ? '' : 's'}</button></div>}<div className="single-flashcard-footer"><button className="secondary" type="button" onClick={nextFlashcard}>Next random card →</button>{customCard && <button className="reset" type="button" onClick={removeCurrentCard}>Delete this card</button>}</div></article></section></main>;
+    return <main className="shell">{header('flashcards')}<section className="flashcard-study" style={{ marginTop: 0 }}><button className="back-link" onClick={() => router.push('/flashcards')}>← Back to flashcards</button><p className="eyebrow">{customCard ? `My ${examTrack} deck` : `${trackLabel} · clinical anchors`}</p><h1 className="page-title">One calm card<br />at a time.</h1><p className="flashcard-study-copy">{customCard ? 'Say the answer first, then flip it. Rate it honestly and let the little deck work for you.' : 'A fresh clinical anchor, chosen at random. Think first, then tap to reveal.'}</p><article className="single-flashcard"><button type="button" className={`flashcard ${isFlipped ? 'flipped' : ''}`} onClick={() => setFlipped(previous => { const next = new Set(previous); next.has(currentFlashcard.id) ? next.delete(currentFlashcard.id) : next.add(currentFlashcard.id); return next; })}><span className="front">{customCard ? `My ${examTrack} card` : clinicalCard.topic}</span><h2>{customCard ? personalCard.front : clinicalCard.stem}</h2><p className="front">Tap to reveal</p><div className="back"><span className="back-label">{customCard ? 'Your answer / note' : 'Best response'}</span><h2>{customCard ? personalCard.back : clinicalCard.choices[clinicalCard.correctIndex]}</h2><p>{customCard ? (personalCard.reviewCount ? `Reviewed ${personalCard.reviewCount} time${personalCard.reviewCount === 1 ? '' : 's'}.` : 'A fresh card—nice one.') : clinicalCard.rationale}</p></div></button>{isFlipped && customCard && <div className="single-flashcard-actions"><button className="secondary" type="button" onClick={() => { reviewCustomFlashcard(currentFlashcard.id, false); nextFlashcard(); }}>Again · 10 min</button><button className="primary" type="button" onClick={() => { reviewCustomFlashcard(currentFlashcard.id, true); nextFlashcard(); }}>Got it · {nextInterval} day{nextInterval === 1 ? '' : 's'}</button></div>}<div className="single-flashcard-footer"><button className="secondary" type="button" onClick={nextFlashcard}>Next random card →</button>{customCard && <button className="reset" type="button" onClick={removeCurrentCard}>Delete this card</button>}</div></article></section></main>;
   }
 
-  if (view === 'flashcards') return <main className="shell">{header('flashcards')}<section className="custom-flashcard-panel" style={{ marginTop: 0 }}>
+  if (view === 'flashcardStudy') return <main className="shell"><section className="auth-loading"><span className="mark">N</span><p>Opening your deck…</p></section></main>;
+
+  if (view === 'flashcardList') return <main className="shell">{header('flashcards')}<section className="section" style={{ marginTop: 0 }}><button className="back-link" onClick={() => router.push('/flashcards')}>← Back to flashcards</button><p className="eyebrow">My {examTrack} deck</p><h1 className="page-title">Your saved<br />flashcards.</h1><p className="hero-copy">{customCardsForTrack.length ? `${customCardsForTrack.length} private card${customCardsForTrack.length === 1 ? '' : 's'} saved for this exam.` : 'No cards yet—make your first one whenever a note is worth keeping.'}</p>{customCardsForTrack.length > 0 && <button className="primary" onClick={() => router.push('/flashcards/deck')}>Start my random deck →</button>}<div className="flash-grid" style={{ marginTop: 25 }}>{customCardsForTrack.map(card => <article className="flashcard" key={card.id}><span className="front">My {examTrack} card</span><h3>{card.front}</h3><p>{card.back}</p><button className="reset" onClick={() => deleteCustomFlashcard(card.id)}>Delete card</button></article>)}</div></section></main>;
+
+  if (view === 'flashcards') return <main className="shell">{header('flashcards')}{flashcardSuccess && <aside className="celebration-backdrop" role="dialog" aria-label="Flashcard created"><div className="celebration-card"><span>📝</span><p className="eyebrow">Flashcard created</p><h2>Saved to your deck.</h2><p>{flashcardSuccess}</p><div className="hero-buttons"><button className="primary" onClick={() => router.push('/flashcards/my-deck')}>View my deck</button><button className="secondary" onClick={() => setFlashcardSuccess(null)}>Keep creating</button></div></div></aside>}<section className="custom-flashcard-panel" style={{ marginTop: 0 }}>
     <div><p className="eyebrow">Your own little deck · {trackLabel}</p><h1 className="page-title">Make it yours,<br />one card at a time.</h1><p>Turn tricky notes, mnemonics, and “ohhh, that’s why” moments into private cards for this library.</p>{accountUser && <p className="source-note">Cloud sync: <b>{cloudStatus === 'saved' ? 'saved' : cloudStatus === 'syncing' ? 'saving…' : 'pending'}</b></p>}</div>
     <form className="custom-flashcard-form" onSubmit={addCustomFlashcard}>
       <label htmlFor="custom-card-front">Front of card <span>Question or cue</span></label><textarea id="custom-card-front" value={customFront} onChange={event => setCustomFront(event.target.value)} maxLength={500} placeholder="e.g. What is the priority before giving a new medication?" />
@@ -516,7 +533,7 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
       {customFlashcardError && <p className="custom-card-error" role="alert">{customFlashcardError}</p>}
     </form>
   </section><section className="section flashcard-launch-section">
-    <div className="section-head"><div><p className="eyebrow">Ready when she is</p><h2>Choose a little deck</h2></div><p>No card list here—each round starts fresh and random.</p></div>
+    <div className="section-head"><div><p className="eyebrow">Ready when she is</p><h2>Choose a little deck</h2></div><button className="secondary" onClick={() => router.push('/flashcards/my-deck')}>View my deck</button></div>
     <div className="flashcard-launch-grid"><article><span>📝</span><p className="eyebrow">My {examTrack} cards</p><h3>Her own notes, made memorable.</h3><p>{customCardsForTrack.length ? `${dueCustomCards.length} due now · ${customCardsForTrack.length} saved` : 'Make a card above, then come back for a mini review.'}</p><button className="primary" disabled={!customCardsForTrack.length} onClick={() => startFlashcardRound('custom')}>Start my random deck →</button></article><article><span>✨</span><p className="eyebrow">Clinical anchors</p><h3>Practice built-in nursing cards.</h3><p>Choose a domain if she wants, then get one randomized card at a time.</p><div className="field"><label htmlFor="flash-domain">Focus domain</label><select id="flash-domain" value={domain} onChange={event => setDomain(event.target.value as LibraryDomain | 'All domains')}><option>All domains</option>{activeDomains.map(item => <option key={item.name}>{item.name}</option>)}</select></div><button className="primary" onClick={() => startFlashcardRound('clinical')}>Start random clinical card →</button></article></div>
   </section></main>;
 

@@ -95,7 +95,7 @@ test('learner can practise, reveal a rationale, continue, and review a flashcard
   await expect(page.locator('.question-title')).toHaveText(resumedStem);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
 
-  await page.getByRole('button', { name: 'Flashcards' }).click();
+  await page.getByRole('button', { name: 'Flashcards', exact: true }).click();
   await page.getByRole('button', { name: /Start random clinical card/i }).click();
   const card = page.locator('.single-flashcard .flashcard');
   await expect(card).toBeVisible();
@@ -209,13 +209,15 @@ test('a completed focused set ends with a saved score summary instead of repeati
 
 test('learner can make, review, retain, and keep private flashcards separated by library', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Flashcards' }).click();
+  await page.getByRole('button', { name: 'Flashcards', exact: true }).click();
   await page.getByLabel('Front of card').fill('What should I check before a first-dose medication?');
   await page.getByLabel('Back of card').fill('Confirm the order, allergy status, identity, and safe administration checks.');
   await page.getByRole('button', { name: /Add to my SNLE deck/i }).click();
-
-  await expect(page.getByText('No card list here—each round starts fresh and random.')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: /Flashcard created/i })).toBeVisible();
+  await page.getByRole('button', { name: 'Keep creating' }).click();
+  await expect(page.getByRole('button', { name: 'View my deck' })).toBeVisible();
   await page.getByRole('button', { name: /Start my random deck/i }).click();
+  await expect(page).toHaveURL(/\/flashcards\/deck$/);
   const myCard = page.locator('.single-flashcard');
   await expect(myCard).toContainText('What should I check before a first-dose medication?');
   await myCard.locator('.flashcard').click();
@@ -224,7 +226,7 @@ test('learner can make, review, retain, and keep private flashcards separated by
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nurse-quest-custom-flashcards-v1') || '[]')[0]?.intervalDays)).toBe(1);
 
   await page.reload();
-  await page.getByRole('button', { name: 'Flashcards' }).click();
+  await page.getByRole('button', { name: 'Flashcards', exact: true }).click();
   await expect(page.getByRole('button', { name: /Start my random deck/i })).toBeEnabled();
   await page.getByRole('button', { name: 'Overview' }).click();
   await page.getByRole('button', { name: /PNLE · Philippines.*20 original/i }).click();
@@ -239,6 +241,7 @@ test('long custom flashcard text stays inside its card', async ({ page }) => {
   await page.getByLabel('Front of card').fill(longWord);
   await page.getByLabel('Back of card').fill(`${longWord} — Check the patient, prescription, and safety steps before acting.`);
   await page.getByRole('button', { name: /Add to my SNLE deck/i }).click();
+  await page.getByRole('button', { name: 'Keep creating' }).click();
   await page.getByRole('button', { name: /Start my random deck/i }).click();
   const card = page.locator('.single-flashcard .flashcard');
   await expect(card).toBeVisible();
