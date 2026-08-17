@@ -6,6 +6,7 @@ import { PNLE_TEMPLATES } from '../content-pnle';
 import { PNLE_EXPANSION_TEMPLATES } from '../content-pnle-expansion';
 import { USRN_TEMPLATES } from '../content-usrn';
 import { USRN_EXPANSION_TEMPLATES } from '../content-usrn-expansion';
+import { NCLEX_CHALLENGE_EXAM_1_TEMPLATES, NCLEX_CHALLENGE_EXAM_2_TEMPLATES, NCLEX_CHALLENGE_EXAM_3_TEMPLATES } from '../content-nclex-challenge';
 import type { StudyTrack } from './resources';
 
 export type Domain = 'Fundamentals' | 'Adult Nursing' | 'Maternal–Child' | 'Management & Leadership';
@@ -13,7 +14,10 @@ export type PnleDomain = 'Nursing Practice I' | 'Nursing Practice II' | 'Nursing
 export type UsrnDomain = 'Management of Care' | 'Safety and Infection Control' | 'Health Promotion and Maintenance' | 'Psychosocial Integrity' | 'Basic Care and Comfort' | 'Pharmacological and Parenteral Therapies' | 'Reduction of Risk Potential' | 'Physiological Adaptation';
 export type LibraryDomain = Domain | PnleDomain | UsrnDomain;
 export type SnleQuestionSetId = 'nurse-quest-originals' | 'snle-mock-exam-part-1' | 'snle-mock-exam-part-2' | 'prometric-1' | 'prometric-2';
+export type UsrnQuestionSetId = 'nurse-quest-originals' | 'nclex-challenge-exam-1' | 'nclex-challenge-exam-2' | 'nclex-challenge-exam-3';
+export type QuestionSetId = SnleQuestionSetId | UsrnQuestionSetId;
 export type SnleQuestionSet = { id: SnleQuestionSetId; label: string; description: string };
+export type UsrnQuestionSet = { id: UsrnQuestionSetId; label: string; description: string };
 
 export const snleQuestionSets: SnleQuestionSet[] = [
   { id: 'nurse-quest-originals', label: 'Nurse Quest originals', description: 'The complete original Nurse Quest SNLE bank.' },
@@ -23,16 +27,24 @@ export const snleQuestionSets: SnleQuestionSet[] = [
   { id: 'prometric-2', label: 'Prometric 2', description: 'Fresh original teaching scenarios for this practice set.' },
 ];
 
+export const usrnQuestionSets: UsrnQuestionSet[] = [
+  { id: 'nurse-quest-originals', label: 'Nurse Quest originals', description: 'The complete original Nurse Quest NCLEX-RN bank.' },
+  { id: 'nclex-challenge-exam-1', label: 'NCLEX Challenge Exam 1', description: '30 NCLEX-RN challenge questions, including select-all-that-apply items.' },
+  { id: 'nclex-challenge-exam-2', label: 'NCLEX Challenge Exam 2', description: '30 NCLEX-RN challenge questions.' },
+  { id: 'nclex-challenge-exam-3', label: 'NCLEX Challenge Exam 3', description: '30 NCLEX-RN challenge questions.' },
+];
+
 export type Question = {
   id: string;
   templateId: string;
   track: StudyTrack;
-  questionSet?: SnleQuestionSetId;
+  questionSet?: QuestionSetId;
   topic: string;
   domain: LibraryDomain;
   stem: string;
   choices: string[];
   correctIndex: number;
+  correctIndices?: number[];
   rationale: string;
   variantNumber: number;
   isAlternateForm: boolean;
@@ -68,7 +80,7 @@ const usrnDomainFor = (topic: string): UsrnDomain => {
 
 const questionTail = (stem: string) => /\?$/.test(stem.trim()) ? '' : ' What is the nurse’s best action?';
 
-function expandTemplates(raw: RawTemplate[], track: StudyTrack, getDomain: (topic: string) => LibraryDomain, questionSet?: SnleQuestionSetId): Question[] {
+function expandTemplates(raw: RawTemplate[], track: StudyTrack, getDomain: (topic: string) => LibraryDomain, questionSet?: QuestionSetId): Question[] {
   return raw.flatMap((template) => {
     const contexts = template.scenarioVariants || template.variants || [];
     return [template.stem, ...contexts].map((stem, index) => ({
@@ -81,6 +93,7 @@ function expandTemplates(raw: RawTemplate[], track: StudyTrack, getDomain: (topi
       stem: index === 0 ? template.stem : `${stem}${questionTail(stem)}`,
       choices: template.choices,
       correctIndex: template.correctIndex,
+      correctIndices: template.correctIndices,
       rationale: template.rationale,
       variantNumber: index,
       isAlternateForm: false,
@@ -96,7 +109,12 @@ export const snleQuestions = [
   ...expandTemplates(PROMETRIC_2_TEMPLATES as RawTemplate[], 'SNLE', snleDomainFor, 'prometric-2'),
 ];
 export const pnleQuestions = expandTemplates(pnleRaw, 'PNLE', pnleDomainFor);
-export const usrnQuestions = expandTemplates(usrnRaw, 'USRN', usrnDomainFor);
+export const usrnQuestions = [
+  ...expandTemplates(usrnRaw, 'USRN', usrnDomainFor, 'nurse-quest-originals'),
+  ...expandTemplates(NCLEX_CHALLENGE_EXAM_1_TEMPLATES as RawTemplate[], 'USRN', usrnDomainFor, 'nclex-challenge-exam-1'),
+  ...expandTemplates(NCLEX_CHALLENGE_EXAM_2_TEMPLATES as RawTemplate[], 'USRN', usrnDomainFor, 'nclex-challenge-exam-2'),
+  ...expandTemplates(NCLEX_CHALLENGE_EXAM_3_TEMPLATES as RawTemplate[], 'USRN', usrnDomainFor, 'nclex-challenge-exam-3'),
+];
 export const questions: Question[] = [...snleQuestions, ...pnleQuestions, ...usrnQuestions];
 
 export const domains: DomainInfo[] = [

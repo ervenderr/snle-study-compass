@@ -1,4 +1,12 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+async function openMobileFilters(page: Page) {
+  if ((page.viewportSize()?.width || 0) > 540) return;
+  const toggle = page.locator('.mobile-control-toggle');
+  await expect(toggle).toBeVisible();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+}
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/auth/get-session', route => route.fulfill({ json: { user: { id: 'test-learner', name: 'Test learner', email: 'learner@example.com' } } }));
@@ -43,8 +51,6 @@ test('learner can practise, reveal a rationale, continue, and review a flashcard
   await expect.poll(() => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('snle-study-compass-progress-v2') || '{}')).length)).toBeGreaterThan(0);
   const resumedStem = await page.locator('.question-title').innerText();
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Resume my round' })).toBeVisible();
-  await page.getByRole('button', { name: 'Resume my round' }).click();
   await expect(page.locator('.question-title')).toHaveText(resumedStem);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
 
@@ -73,20 +79,20 @@ test('the learner can choose an entirely separate PNLE library', async ({ page }
   await expect(page.locator('#exam-track')).toHaveValue('PNLE');
   await expect(page.locator('.tag')).toContainText('PNLE');
   await expect(page.locator('.question-title')).not.toContainText('Saudi');
-  const filters = page.getByRole('button', { name: 'Filters' });
-  if (await filters.isVisible()) await filters.click();
+  await openMobileFilters(page);
   await page.locator('#exam-track').selectOption('SNLE');
   await expect(page.locator('.tag')).toContainText('SNLE');
 });
 
 test('the learner can choose the separate USRN 2026 library', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: /USRN · NCLEX-RN 2026.*40 original/i }).click();
+  await page.getByRole('button', { name: /USRN · NCLEX-RN 2026.*Original bank/i }).click();
   await page.getByRole('button', { name: /Play a new round/i }).click();
+  await expect(page.getByRole('heading', { name: /Which NCLEX set/i })).toBeVisible();
+  await page.getByRole('button', { name: /Nurse Quest originals/i }).click();
   await expect(page.locator('#exam-track')).toHaveValue('USRN');
   await expect(page.locator('.tag')).toContainText('USRN');
-  const filters = page.getByRole('button', { name: 'Filters' });
-  if (await filters.isVisible()) await filters.click();
+  await openMobileFilters(page);
   await expect(page.locator('#domain')).toContainText('Management of Care');
   await expect(page.locator('#domain')).toContainText('Physiological Adaptation');
 });
@@ -97,8 +103,9 @@ test('Practice opens a three-library chooser before any question', async ({ page
   await expect(page.getByRole('heading', { name: /Which exam are we/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Choose an SNLE set/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Start PNLE practice/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Start USRN practice/i })).toBeVisible();
-  await page.getByRole('button', { name: /Start USRN practice/i }).click();
+  await expect(page.getByRole('button', { name: /Choose an NCLEX-RN set/i })).toBeVisible();
+  await page.getByRole('button', { name: /Choose an NCLEX-RN set/i }).click();
+  await page.getByRole('button', { name: /Nurse Quest originals/i }).click();
   await expect(page.locator('.tag')).toContainText('USRN');
   await expect(page.locator('.question-title')).toBeVisible();
 });
@@ -118,12 +125,33 @@ test('SNLE practice opens a set chooser and keeps the four-choice flow', async (
   await expect(page.locator('.answer-btn')).toHaveCount(4);
 });
 
+test('NCLEX Challenge Exam 1 requires every correct select-all-that-apply choice', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Practice', exact: true }).click();
+  await page.getByRole('button', { name: /Choose an NCLEX-RN set/i }).click();
+  await expect(page).toHaveURL(/\/practice\/nclex$/);
+  await page.evaluate(() => { Math.random = () => 0.48; });
+  await page.getByRole('button', { name: /NCLEX Challenge Exam 1/i }).click();
+  await expect(page).toHaveURL(/\/practice\/nclex\/exam-1$/);
+  await expect(page.getByText('SELECT ALL THAT APPLY', { exact: true })).toBeVisible();
+  const answers = page.locator('.answer-btn');
+  await expect(answers).toHaveCount(6);
+  await answers.nth(1).click();
+  await answers.nth(3).click();
+  await answers.nth(5).click();
+  await page.getByRole('button', { name: 'Check answer' }).click();
+  await expect(page.getByText(/Correct — keep the clinical priority/i)).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const first = Object.values(JSON.parse(localStorage.getItem('snle-study-compass-progress-v2') || '{}'))[0] as { selected?: number[] } | undefined;
+    return first?.selected?.length;
+  })).toBe(3);
+});
+
 test('a completed focused set ends with a saved score summary instead of repeating questions', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: /Play a new round/i }).click();
   await page.getByRole('button', { name: /Nurse Quest originals/i }).click();
-  const filters = page.getByRole('button', { name: 'Filters' });
-  if (await filters.isVisible()) await filters.click();
+  await openMobileFilters(page);
   await page.locator('#domain').selectOption('Fundamentals');
   await page.locator('#topic').selectOption('Fundamentals — Infection prevention');
   for (let index = 0; index < 10; index += 1) {
@@ -189,9 +217,9 @@ test('practice keeps serving new question scenarios after four answers', async (
   });
   await page.goto('/');
   await page.getByRole('button', { name: 'Practice', exact: true }).click();
-  await page.getByRole('button', { name: /Start USRN practice/i }).click();
-  const filters = page.getByRole('button', { name: 'Filters' });
-  if (await filters.isVisible()) await filters.click();
+  await page.getByRole('button', { name: /Choose an NCLEX-RN set/i }).click();
+  await page.getByRole('button', { name: /Nurse Quest originals/i }).click();
+  await openMobileFilters(page);
   await page.locator('#mode').selectOption('All scenario forms');
   await page.evaluate(() => { Math.random = () => 0; });
 
@@ -215,13 +243,14 @@ test('normal practice uses original core questions before scenario variations', 
   });
   await page.goto('/');
   await page.getByRole('button', { name: 'Practice', exact: true }).click();
-  await page.getByRole('button', { name: /Start USRN practice/i }).click();
+  await page.getByRole('button', { name: /Choose an NCLEX-RN set/i }).click();
+  await page.getByRole('button', { name: /Nurse Quest originals/i }).click();
   await page.evaluate(() => { Math.random = () => 0; });
 
   const stems: string[] = [];
   for (let index = 0; index < 5; index += 1) {
     stems.push(await page.locator('.question-title').innerText());
-    await expect(page.locator('.difficulty')).toHaveText('SCENARIO 1');
+    await expect(page.getByText('SCENARIO 1', { exact: true })).toBeVisible();
     await page.locator('.answer-btn').first().click();
     if (index < 4) await page.getByRole('button', { name: /Next question/i }).click();
   }
@@ -230,21 +259,20 @@ test('normal practice uses original core questions before scenario variations', 
 });
 
 test('a correct answer earns a shareable reward', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('snle-study-compass-session-v1', JSON.stringify({
+      current: {
+        id: 'reward-test-question', track: 'SNLE', questionSet: 'nurse-quest-originals', domain: 'Fundamentals', topic: 'Fundamentals — Infection prevention',
+        stem: 'A focused test question.', choices: ['First option', 'Correct option', 'Third option', 'Fourth option'], correctIndex: 1, rationale: 'A focused test rationale.', variantNumber: 0,
+      },
+      track: 'SNLE', questionSet: 'nurse-quest-originals', domain: 'All domains', topic: 'All topics', mode: 'Random topics', selected: [], revealed: false, savedAt: new Date().toISOString(),
+    }));
+  });
   await page.goto('/');
   await page.getByRole('button', { name: /Play a new round/i }).click();
   await page.getByRole('button', { name: /Nurse Quest originals/i }).click();
-  const filters = page.getByRole('button', { name: 'Filters' });
-  if (await filters.isVisible()) await filters.click();
-  await page.locator('#domain').selectOption('Fundamentals');
-  await page.locator('#topic').selectOption('Fundamentals — Infection prevention');
-  await page.locator('.answer-btn').first().click();
+  await page.locator('.answer-btn').nth(1).click();
   const firstReward = page.getByRole('dialog');
-  if (await firstReward.isVisible()) {
-    await expect(page.getByText('Reward unlocked')).toBeVisible();
-  } else {
-    await page.getByRole('button', { name: /Next question/i }).click();
-    await page.locator('.answer-btn').nth(1).click();
-  }
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByText('Reward unlocked')).toBeVisible();
   await expect(page.getByText(/Screenshot this little win/i)).toBeVisible();

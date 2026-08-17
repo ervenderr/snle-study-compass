@@ -2,23 +2,25 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import Image from 'next/image';
-import { domainReferences, domainsForTrack, questions, snleQuestionSets, type LibraryDomain, type Question, type SnleQuestionSetId } from '../lib/questions';
+import { useRouter } from 'next/navigation';
+import { domainReferences, domainsForTrack, questions, snleQuestionSets, usrnQuestionSets, type LibraryDomain, type Question, type QuestionSetId, type SnleQuestionSetId, type UsrnQuestionSetId } from '../lib/questions';
 import { studyResources, type StudyTrack } from '../lib/resources';
 
-type View = 'landing' | 'home' | 'practiceSetup' | 'snleSetSetup' | 'study' | 'results' | 'flashcards' | 'flashcardStudy' | 'rewards' | 'resources' | 'account';
+type View = 'landing' | 'home' | 'practiceSetup' | 'snleSetSetup' | 'usrnSetSetup' | 'study' | 'results' | 'flashcards' | 'flashcardStudy' | 'rewards' | 'resources' | 'account';
 type Mode = 'Random topics' | 'Fresh in selection' | 'All scenario forms' | 'Review incorrect' | 'Weak spots rescue';
 type Confidence = 'confident' | 'unsure' | 'guessed';
-type StudyRecord = { correct: boolean; selected: number; answeredAt: string; alternate: boolean; confidence?: Confidence };
+type StudyRecord = { correct: boolean; selected: number[]; answeredAt: string; alternate: boolean; confidence?: Confidence };
 type Progress = Record<string, StudyRecord>;
-type SavedSession = { current: Question; track: StudyTrack; questionSet?: SnleQuestionSetId; domain: LibraryDomain | 'All domains'; topic: string; mode: Mode; selected: number | null; revealed: boolean; savedAt: string };
+type SavedSession = { current: Question; track: StudyTrack; questionSet?: QuestionSetId; domain: LibraryDomain | 'All domains'; topic: string; mode: Mode; selected: number[]; revealed: boolean; savedAt: string };
 type Player = { xp: number; streak: number; bestStreak: number; correct: number; unlocked: string[]; updatedAt: string };
 type Players = Record<StudyTrack, Player>;
 type CustomFlashcard = { id: string; track: StudyTrack; front: string; back: string; createdAt: string; dueAt: string; intervalDays: number; reviewCount: number; updatedAt: string };
 type AccountUser = { id: string; name: string; email: string };
 type CloudSnapshot = { flashcards: CustomFlashcard[]; progress: Progress; players: Players; savedSession: SavedSession | null };
-type CompletedRound = { track: StudyTrack; questionSet?: SnleQuestionSetId; domain: LibraryDomain | 'All domains'; topic: string; mode: Mode };
+type CompletedRound = { track: StudyTrack; questionSet?: QuestionSetId; domain: LibraryDomain | 'All domains'; topic: string; mode: Mode };
 type Celebration = { title: string; message: string; emoji: string } | null;
 type PepTalk = { title: string; message: string; emoji: string } | null;
+type StudyCompassProps = { initialView?: View; initialTrack?: StudyTrack; initialSnleQuestionSet?: SnleQuestionSetId; initialUsrnQuestionSet?: UsrnQuestionSetId };
 
 const storageKey = 'snle-study-compass-progress-v2';
 const sessionKey = 'snle-study-compass-session-v1';
@@ -26,7 +28,7 @@ const playerKey = 'snle-study-compass-player-v1';
 const pepTalkKey = 'nurse-quest-pep-talk-v1';
 const customFlashcardsKey = 'nurse-quest-custom-flashcards-v1';
 const deletedFlashcardsKey = 'nurse-quest-deleted-flashcards-v1';
-const letters = ['A', 'B', 'C', 'D'];
+const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const rewards = [
   { id: 'spark', threshold: 1, emoji: '⭐', title: 'First Spark', message: 'One correct answer is a real beginning.' },
   { id: 'steady', threshold: 10, emoji: '🌱', title: 'Steady Starter', message: 'Ten correct answers—your habits are growing.' },
@@ -41,8 +43,10 @@ function loadProgress(): Progress { try { return JSON.parse(window.localStorage.
 function loadSession(): SavedSession | null {
   try {
     const saved = JSON.parse(window.localStorage.getItem(sessionKey) || 'null') as Partial<SavedSession> | null;
-    if (!saved?.current?.choices || saved.current.choices.length !== 4 || typeof saved.current.stem !== 'string') return null;
-    return { ...saved, track: saved.track === 'PNLE' || saved.track === 'USRN' ? saved.track : 'SNLE', questionSet: saved.questionSet || 'nurse-quest-originals', domain: saved.domain || 'All domains' } as SavedSession;
+    if (!saved?.current?.choices || saved.current.choices.length < 2 || typeof saved.current.stem !== 'string') return null;
+    const track = saved.track === 'PNLE' || saved.track === 'USRN' ? saved.track : 'SNLE';
+    const selected = Array.isArray(saved.selected) ? saved.selected.filter((index): index is number => typeof index === 'number') : typeof saved.selected === 'number' ? [saved.selected] : [];
+    return { ...saved, track, questionSet: saved.questionSet || 'nurse-quest-originals', domain: saved.domain || 'All domains', selected } as SavedSession;
   } catch { return null; }
 }
 function loadPlayers(): Players {
@@ -71,16 +75,18 @@ function alternateForm(question: Question): Question {
   return { ...question, id: `${question.id}-alt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, stem: `${randomItem(frames)}${question.stem.charAt(0).toLowerCase()}${question.stem.slice(1)}`, isAlternateForm: true };
 }
 
-export default function StudyCompass() {
-  const [view, setView] = useState<View>('landing');
-  const [examTrack, setExamTrack] = useState<StudyTrack>('SNLE');
-  const [snleQuestionSet, setSnleQuestionSet] = useState<SnleQuestionSetId>('nurse-quest-originals');
+export default function StudyCompass({ initialView = 'landing', initialTrack = 'SNLE', initialSnleQuestionSet = 'nurse-quest-originals', initialUsrnQuestionSet = 'nurse-quest-originals' }: StudyCompassProps) {
+  const router = useRouter();
+  const [view, setView] = useState<View>(initialView);
+  const [examTrack, setExamTrack] = useState<StudyTrack>(initialTrack);
+  const [snleQuestionSet, setSnleQuestionSet] = useState<SnleQuestionSetId>(initialSnleQuestionSet);
+  const [usrnQuestionSet, setUsrnQuestionSet] = useState<UsrnQuestionSetId>(initialUsrnQuestionSet);
   const [domain, setDomain] = useState<LibraryDomain | 'All domains'>('All domains');
   const [topic, setTopic] = useState('All topics');
   const [mode, setMode] = useState<Mode>('Random topics');
   const [progress, setProgress] = useState<Progress>({});
-  const [current, setCurrent] = useState<Question>(questions[0]);
-  const [selected, setSelected] = useState<number | null>(null);
+  const [current, setCurrent] = useState<Question>(() => questions.find(question => question.track === initialTrack && (initialTrack === 'PNLE' || question.questionSet === (initialTrack === 'SNLE' ? initialSnleQuestionSet : initialUsrnQuestionSet)) && question.variantNumber === 0) || questions[0]);
+  const [selected, setSelected] = useState<number[]>([]);
   const [revealed, setRevealed] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [flipped, setFlipped] = useState<Set<string>>(new Set());
@@ -107,10 +113,17 @@ export default function StudyCompass() {
   const [cloudStatus, setCloudStatus] = useState<'local' | 'syncing' | 'saved' | 'pending'>('local');
   const [completedRound, setCompletedRound] = useState<CompletedRound | null>(null);
   const skipInitialSessionWrite = useRef(true);
-  const allTrackQuestions = useMemo(() => questions.filter(question => question.track === examTrack && (examTrack !== 'SNLE' || question.questionSet === snleQuestionSet)), [examTrack, snleQuestionSet]);
+  const initialStudyRoute = useRef<string | null>(null);
+  const activeQuestionSet = examTrack === 'SNLE' ? snleQuestionSet : examTrack === 'USRN' ? usrnQuestionSet : undefined;
+  const allTrackQuestions = useMemo(() => questions.filter(question => question.track === examTrack && (examTrack === 'PNLE' || question.questionSet === activeQuestionSet)), [activeQuestionSet, examTrack]);
   const activeQuestions = useMemo(() => allTrackQuestions.filter(question => question.variantNumber === 0), [allTrackQuestions]);
   const activeDomains = useMemo(() => domainsForTrack(examTrack), [examTrack]);
   const player = players[examTrack];
+
+  useEffect(() => {
+    if (view !== 'study' || current.track === examTrack || !activeQuestions.length) return;
+    setCurrent(activeQuestions[0]); setSelected([]); setRevealed(false);
+  }, [activeQuestions, current.track, examTrack, view]);
 
   const api = async <T,>(path: string, init?: RequestInit): Promise<T> => {
     const response = await fetch(`/api${path}`, { ...init, credentials: 'include', headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) } });
@@ -199,10 +212,10 @@ export default function StudyCompass() {
   useEffect(() => {
     if (!storageLoaded) return;
     if (skipInitialSessionWrite.current) { skipInitialSessionWrite.current = false; return; }
-    const nextSession: SavedSession = { current, track: examTrack, questionSet: snleQuestionSet, domain, topic, mode, selected, revealed, savedAt: new Date().toISOString() };
+    const nextSession: SavedSession = { current, track: examTrack, questionSet: activeQuestionSet, domain, topic, mode, selected, revealed, savedAt: new Date().toISOString() };
     try { window.localStorage.setItem(sessionKey, JSON.stringify(nextSession)); } catch {}
     setSavedSession(nextSession);
-  }, [current, domain, examTrack, mode, revealed, selected, snleQuestionSet, storageLoaded, topic]);
+  }, [activeQuestionSet, current, domain, examTrack, mode, revealed, selected, storageLoaded, topic]);
 
   const topics = useMemo(() => [...new Set(activeQuestions.filter(question => domain === 'All domains' || question.domain === domain).map(question => question.topic))], [activeQuestions, domain]);
   const summary = useMemo(() => {
@@ -216,15 +229,19 @@ export default function StudyCompass() {
     const completed = items.filter(question => progress[question.id]);
     return { total: items.length, done: completed.length };
   };
+  const usrnSetStats = (set: UsrnQuestionSetId) => {
+    const items = questions.filter(question => question.track === 'USRN' && question.questionSet === set && question.variantNumber === 0);
+    return { total: items.length, done: items.filter(question => progress[question.id]).length };
+  };
 
-  const roundQuestions = (nextTrack = examTrack, nextDomain = domain, nextTopic = topic, nextMode = mode, nextSnleSet = snleQuestionSet) => {
-    const allLibraryQuestions = questions.filter(question => question.track === nextTrack && (nextTrack !== 'SNLE' || question.questionSet === nextSnleSet));
+  const roundQuestions = (nextTrack = examTrack, nextDomain = domain, nextTopic = topic, nextMode = mode, nextQuestionSet: QuestionSetId | undefined = activeQuestionSet) => {
+    const allLibraryQuestions = questions.filter(question => question.track === nextTrack && (nextTrack === 'PNLE' || question.questionSet === nextQuestionSet));
     const library = nextMode === 'All scenario forms' ? allLibraryQuestions : allLibraryQuestions.filter(question => question.variantNumber === 0);
     const inSelection = library.filter(question => (nextDomain === 'All domains' || question.domain === nextDomain) && (nextTopic === 'All topics' || question.topic === nextTopic));
     return nextMode === 'Random topics' ? library : inSelection;
   };
-  const pickQuestion = (nextTrack = examTrack, nextDomain = domain, nextTopic = topic, nextMode = mode, nextSnleSet = snleQuestionSet): Question | null => {
-    const pool = roundQuestions(nextTrack, nextDomain, nextTopic, nextMode, nextSnleSet);
+  const pickQuestion = (nextTrack = examTrack, nextDomain = domain, nextTopic = topic, nextMode = mode, nextQuestionSet: QuestionSetId | undefined = activeQuestionSet): Question | null => {
+    const pool = roundQuestions(nextTrack, nextDomain, nextTopic, nextMode, nextQuestionSet);
     if (!pool.length) return null;
     if (nextMode === 'Review incorrect') {
       const incorrect = pool.filter(question => progress[question.id] && !progress[question.id].correct);
@@ -243,25 +260,38 @@ export default function StudyCompass() {
     if (unseen.length) return randomItem(unseen);
     return null;
   };
-  const startQuestion = (nextTrack = examTrack, nextDomain = domain, nextTopic = topic, nextMode = mode, nextSnleSet = snleQuestionSet) => {
-    const next = pickQuestion(nextTrack, nextDomain, nextTopic, nextMode, nextSnleSet);
-    if (!next) { setCompletedRound({ track: nextTrack, questionSet: nextTrack === 'SNLE' ? nextSnleSet : undefined, domain: nextDomain, topic: nextTopic, mode: nextMode }); setView('results'); return; }
+  const startQuestion = (nextTrack = examTrack, nextDomain = domain, nextTopic = topic, nextMode = mode, nextQuestionSet: QuestionSetId | undefined = activeQuestionSet) => {
+    const next = pickQuestion(nextTrack, nextDomain, nextTopic, nextMode, nextQuestionSet);
+    if (!next) { setCompletedRound({ track: nextTrack, questionSet: nextTrack === 'PNLE' ? undefined : nextQuestionSet, domain: nextDomain, topic: nextTopic, mode: nextMode }); setView('results'); return; }
     setCurrent(next);
-    setSelected(null); setRevealed(false);
+    setSelected([]); setRevealed(false);
   };
   const selectTrack = (track: StudyTrack, start = false) => {
     setExamTrack(track); setDomain('All domains'); setTopic('All topics'); setMode('Random topics'); setFlipped(new Set());
-    if (start) { setView('study'); startQuestion(track, 'All domains', 'All topics', 'Random topics'); }
+    const questionSet = track === 'SNLE' ? snleQuestionSet : track === 'USRN' ? usrnQuestionSet : undefined;
+    if (start) { setView('study'); startQuestion(track, 'All domains', 'All topics', 'Random topics', questionSet); }
   };
   const selectSnleQuestionSet = (set: SnleQuestionSetId, start = false) => {
     setExamTrack('SNLE'); setSnleQuestionSet(set); setDomain('All domains'); setTopic('All topics'); setMode('Random topics'); setFlipped(new Set());
     if (start) { setView('study'); startQuestion('SNLE', 'All domains', 'All topics', 'Random topics', set); }
   };
-  const saveAnswer = (index: number) => {
-    if (selected !== null) return;
-    const isCorrect = index === current.correctIndex;
-    const nextProgress = { ...progress, [current.id]: { correct: isCorrect, selected: index, answeredAt: new Date().toISOString(), alternate: current.isAlternateForm, confidence: isCorrect ? 'unsure' as Confidence : 'guessed' as Confidence } };
-    setSelected(index); setProgress(nextProgress);
+  const openSnleQuestionSet = (set: SnleQuestionSetId) => router.push(`/practice/snle/${set}`);
+  const selectUsrnQuestionSet = (set: UsrnQuestionSetId, start = false) => {
+    setExamTrack('USRN'); setUsrnQuestionSet(set); setDomain('All domains'); setTopic('All topics'); setMode('Random topics'); setFlipped(new Set());
+    if (start) { setView('study'); startQuestion('USRN', 'All domains', 'All topics', 'Random topics', set); }
+  };
+  const openUsrnQuestionSet = (set: UsrnQuestionSetId) => router.push(`/practice/nclex/${set.replace('nclex-challenge-', '')}`);
+  const toggleAnswer = (index: number) => {
+    if (progress[current.id]) return;
+    if (current.correctIndices?.length) setSelected(previous => previous.includes(index) ? previous.filter(item => item !== index) : [...previous, index]);
+    else { setSelected([index]); submitAnswer([index]); }
+  };
+  const submitAnswer = (answers = selected) => {
+    if (!answers.length || progress[current.id]) return;
+    const correctIndices = current.correctIndices || [current.correctIndex];
+    const isCorrect = answers.length === correctIndices.length && answers.every(index => correctIndices.includes(index));
+    const nextProgress = { ...progress, [current.id]: { correct: isCorrect, selected: [...answers], answeredAt: new Date().toISOString(), alternate: current.isAlternateForm, confidence: isCorrect ? 'unsure' as Confidence : 'guessed' as Confidence } };
+    setProgress(nextProgress);
     try { window.localStorage.setItem(storageKey, JSON.stringify(nextProgress)); } catch {}
     setPlayers(previous => {
       const previousTrack = previous[current.track];
@@ -275,6 +305,21 @@ export default function StudyCompass() {
       return next;
     });
   };
+  useEffect(() => {
+    if (initialView !== 'study' || !accountUser || !storageLoaded) return;
+    const initialSet = initialTrack === 'SNLE' ? initialSnleQuestionSet : initialTrack === 'USRN' ? initialUsrnQuestionSet : undefined;
+    const routeKey = `${initialTrack}:${initialSet || 'default'}`;
+    if (initialStudyRoute.current === routeKey) return;
+    initialStudyRoute.current = routeKey;
+    setView('study'); setExamTrack(initialTrack); if (initialTrack === 'SNLE') setSnleQuestionSet(initialSnleQuestionSet); if (initialTrack === 'USRN') setUsrnQuestionSet(initialUsrnQuestionSet);
+    if (savedSession && savedSession.track === initialTrack && savedSession.questionSet === initialSet) {
+      setCurrent(savedSession.current); setSelected(savedSession.selected); setRevealed(savedSession.revealed); return;
+    }
+    const initialPool = questions.filter(question => question.track === initialTrack && (initialTrack === 'PNLE' || question.questionSet === initialSet) && question.variantNumber === 0);
+    const unseen = initialPool.filter(question => !progress[question.id]);
+    if (unseen.length) { setCurrent(randomItem(unseen)); setSelected([]); setRevealed(false); }
+    else { setCompletedRound({ track: initialTrack, questionSet: initialSet, domain: 'All domains', topic: 'All topics', mode: 'Random topics' }); setView('results'); }
+  }, [accountUser, initialSnleQuestionSet, initialTrack, initialUsrnQuestionSet, initialView, progress, savedSession, storageLoaded]);
   const saveConfidence = (confidence: Confidence) => {
     const existing = progress[current.id];
     if (!existing) return;
@@ -341,18 +386,20 @@ export default function StudyCompass() {
   const openAccount = (nextMode: 'signin' | 'signup' = 'signin') => { setAccountMode(nextMode); setAccountError(''); setShowPassword(false); setView('account'); };
   const navigate = (next: View) => {
     if (!accountUser && next !== 'landing' && next !== 'account') { openAccount('signin'); return; }
-    setView(next); setSelected(null); setRevealed(false);
+    setView(next); setSelected([]); setRevealed(false);
   };
   const closePepTalk = () => { setPepTalk(null); try { window.localStorage.setItem(pepTalkKey, 'seen'); } catch {} };
   const openTrack = (track: StudyTrack) => { setResourceTrack(track); setView('resources'); };
-  const chooseDomain = (nextDomain: LibraryDomain) => { setDomain(nextDomain); setTopic('All topics'); setMode('Fresh in selection'); setView('study'); startQuestion(examTrack, nextDomain, 'All topics', 'Fresh in selection'); };
+  const chooseDomain = (nextDomain: LibraryDomain) => { setDomain(nextDomain); setTopic('All topics'); setMode('Fresh in selection'); setView('study'); startQuestion(examTrack, nextDomain, 'All topics', 'Fresh in selection', activeQuestionSet); };
   const resumeSession = () => {
     if (!savedSession) return;
     const validTrack = savedSession.track === 'PNLE' || savedSession.track === 'USRN' ? savedSession.track : 'SNLE';
     const validDomain = savedSession.current.track === validTrack ? savedSession.domain : 'All domains';
-    setExamTrack(validTrack); setSnleQuestionSet(savedSession.questionSet || 'nurse-quest-originals'); setDomain(validDomain); setTopic(savedSession.topic); setMode(savedSession.mode); setCurrent(savedSession.current); setSelected(savedSession.selected); setRevealed(savedSession.revealed); setView('study');
+    setExamTrack(validTrack); if (validTrack === 'SNLE') setSnleQuestionSet((savedSession.questionSet as SnleQuestionSetId) || 'nurse-quest-originals'); if (validTrack === 'USRN') setUsrnQuestionSet((savedSession.questionSet as UsrnQuestionSetId) || 'nurse-quest-originals'); setDomain(validDomain); setTopic(savedSession.topic); setMode(savedSession.mode); setCurrent(savedSession.current); setSelected(savedSession.selected); setRevealed(savedSession.revealed); setView('study');
   };
-  const selectedCorrect = selected === current.correctIndex;
+  const correctIndices = current.correctIndices || [current.correctIndex];
+  const answerSubmitted = Boolean(progress[current.id]);
+  const selectedCorrect = selected.length === correctIndices.length && selected.every(index => correctIndices.includes(index));
   const showRationale = selectedCorrect || revealed;
   const flashcards = activeQuestions.filter(question => question.variantNumber === 0 && (domain === 'All domains' || question.domain === domain));
   const customCardsForTrack = customFlashcards.filter(card => card.track === examTrack);
@@ -372,22 +419,23 @@ export default function StudyCompass() {
   const nextReward = rewards.find(reward => !player.unlocked.includes(reward.id));
   const trackLabel = examTrack === 'SNLE' ? 'SNLE · Saudi Arabia' : examTrack === 'PNLE' ? 'PNLE · Philippines' : 'USRN · NCLEX-RN 2026';
   const snleSetLabel = snleQuestionSets.find(set => set.id === snleQuestionSet)?.label || 'Nurse Quest originals';
-  const openNewRound = () => examTrack === 'SNLE' ? setView('snleSetSetup') : selectTrack(examTrack, true);
-  const completedQuestions = completedRound ? roundQuestions(completedRound.track, completedRound.domain, completedRound.topic, completedRound.mode, completedRound.questionSet || 'nurse-quest-originals') : [];
+  const usrnSetLabel = usrnQuestionSets.find(set => set.id === usrnQuestionSet)?.label || 'Nurse Quest originals';
+  const openNewRound = () => examTrack === 'SNLE' ? router.push('/practice/snle') : examTrack === 'USRN' ? router.push('/practice/nclex') : selectTrack(examTrack, true);
+  const completedQuestions = completedRound ? roundQuestions(completedRound.track, completedRound.domain, completedRound.topic, completedRound.mode, completedRound.questionSet) : [];
   const completedRecords = completedQuestions.map(question => progress[question.id]).filter((record): record is StudyRecord => Boolean(record));
   const completedCorrect = completedRecords.filter(record => record.correct).length;
   const completedAccuracy = completedRecords.length ? Math.round(completedCorrect / completedRecords.length * 100) : 0;
-  const completedLabel = completedRound?.track === 'SNLE' ? snleQuestionSets.find(set => set.id === completedRound.questionSet)?.label || 'Nurse Quest originals' : completedRound?.track === 'PNLE' ? 'PNLE question library' : 'USRN / NCLEX-RN 2026 question library';
+  const completedLabel = completedRound?.track === 'SNLE' ? snleQuestionSets.find(set => set.id === completedRound.questionSet)?.label || 'Nurse Quest originals' : completedRound?.track === 'USRN' ? usrnQuestionSets.find(set => set.id === completedRound.questionSet)?.label || 'Nurse Quest originals' : 'PNLE question library';
   const continueCompletedRound = (nextMode: Mode) => {
     if (!completedRound) return;
-    setMode(nextMode); setView('study'); startQuestion(completedRound.track, completedRound.domain, completedRound.topic, nextMode, completedRound.questionSet || 'nurse-quest-originals');
+    setMode(nextMode); setView('study'); startQuestion(completedRound.track, completedRound.domain, completedRound.topic, nextMode, completedRound.questionSet);
   };
 
   const header = (active: View) => <header className="nav">
     <button className="brand" onClick={() => navigate(accountUser ? 'home' : 'landing')} aria-label="Nurse Quest home"><span className="mark">N</span> Nurse Quest</button>
     {!accountUser ? <div className="nav-actions"><button className="nav-link" onClick={() => openAccount('signin')}>Sign in</button><button className="primary nav-cta" onClick={() => openAccount('signup')}>Create account</button></div> : <div className="nav-actions">
       <button className={`nav-link ${active === 'home' ? 'active' : ''}`} onClick={() => navigate('home')}>Overview</button>
-      <button className={`nav-link ${active === 'study' || active === 'practiceSetup' || active === 'snleSetSetup' ? 'active' : ''}`} onClick={() => navigate('practiceSetup')}>Practice</button>
+      <button className={`nav-link ${active === 'study' || active === 'practiceSetup' || active === 'snleSetSetup' || active === 'usrnSetSetup' ? 'active' : ''}`} onClick={() => router.push('/practice')}>Practice</button>
       <button className={`nav-link ${active === 'flashcards' ? 'active' : ''}`} onClick={() => navigate('flashcards')}>Flashcards</button>
       <button className={`nav-link ${active === 'rewards' ? 'active' : ''}`} onClick={() => navigate('rewards')}>Rewards</button>
       <button className={`nav-link ${active === 'resources' ? 'active' : ''}`} onClick={() => openTrack(examTrack)}>Library</button>
@@ -399,7 +447,7 @@ export default function StudyCompass() {
 
   if (!accountUser && view === 'landing') return <main className="shell landing-shell">{header('landing')}<section className="landing-hero"><div className="landing-copy"><p className="eyebrow">Nursing exam practice, made personal</p><h1>Your calm corner<br />for the next exam.</h1><p>Original SNLE, PNLE, and USRN practice, flashcards, focused rescue rounds, and progress that follows you from one study session to the next.</p><div className="hero-buttons"><button className="primary" onClick={() => openAccount('signup')}>Create your free account <span aria-hidden="true">→</span></button><button className="secondary" onClick={() => openAccount('signin')}>I already have an account</button></div><p className="landing-note">Your study history stays private to your account.</p></div><div className="landing-preview" aria-label="A preview of the Nurse Quest study experience"><div className="preview-glow" /><p className="eyebrow">Your next session</p><div className="preview-question"><span>SNLE · Fundamentals</span><h2>One clear question at a time.</h2><div><i /><i /><i /><i /></div></div><div className="preview-stats"><span>✦ Weak spots rescue</span><span>☁ Progress saved</span></div></div></section><section className="landing-benefits"><article><span>🧠</span><h2>Practice with purpose</h2><p>Choose a question library, a domain, or a focused round whenever you sit down.</p></article><article><span>🗂️</span><h2>Make it yours</h2><p>Build private flashcards from your own notes and review them on your schedule.</p></article><article><span>↗</span><h2>Pick up anywhere</h2><p>Your questions, rewards, cards, and current round are kept with your account.</p></article></section></main>;
 
-  if (view === 'account') return <main className="shell">{header('account')}<section className="custom-flashcard-panel" style={{ marginTop: 0 }}>
+  if (view === 'account' || !accountUser) return <main className="shell">{header('account')}<section className="custom-flashcard-panel" style={{ marginTop: 0 }}>
     {accountUser ? <><div><p className="eyebrow">Cloud study space</p><h1 className="page-title">Hi, {accountUser.name || 'learner'}.</h1><p>Your flashcards, progress, rewards, and saved round are linked to this account.</p><p className="source-note">Sync status: <b>{cloudStatus === 'saved' ? 'Saved to your account' : cloudStatus === 'syncing' ? 'Saving…' : cloudStatus === 'pending' ? 'Saved on this device; waiting to sync' : 'Using this device only'}</b></p></div><div className="custom-flashcard-form"><p><b>{accountUser.email}</b></p><button className="primary" type="button" onClick={() => void syncCloud()} disabled={cloudStatus === 'syncing'}>Sync now</button><button className="secondary" type="button" onClick={() => void signOut()}>Sign out</button></div></> : <><div><p className="eyebrow">Your private study space</p><h1 className="page-title">Come in.<br />Your progress is here.</h1><p>{accountMode === 'signin' ? 'Sign in to continue your questions, flashcards, rewards, and rescue rounds.' : 'Create your account once, then come back to the same progress on any device.'}</p><ul className="account-trust"><li>Private progress and flashcards</li><li>Secure, signed-in sessions</li><li>No Google account required</li></ul></div><form className="custom-flashcard-form account-form" onSubmit={submitAccount}>
       <div className="track-toggle"><button type="button" className={accountMode === 'signin' ? 'selected' : ''} onClick={() => { setAccountMode('signin'); setAccountError(''); }}>Sign in</button><button type="button" className={accountMode === 'signup' ? 'selected' : ''} onClick={() => { setAccountMode('signup'); setAccountError(''); }}>Create account</button></div>
       {accountMode === 'signup' && <><label htmlFor="account-name">First name</label><input id="account-name" name="name" required minLength={2} maxLength={80} autoComplete="given-name" placeholder="How should we call you?" /></>}
@@ -455,18 +503,24 @@ export default function StudyCompass() {
 
   if (view === 'snleSetSetup') return <main className="shell">{header('snleSetSetup')}<section className="section practice-setup" style={{ marginTop: 0 }}>
     <button className="back-link" onClick={() => navigate('practiceSetup')}>← Back to exam choices</button><p className="eyebrow">SNLE practice set</p><h1 className="page-title">Which SNLE set<br />are we opening?</h1><p className="hero-copy">Each set opens the same four-choice practice flow, with its own question progress. Every item in the app is an original teaching scenario.</p>
-    <div className="practice-library-grid">{snleQuestionSets.map(set => <button className="practice-library-card snle-card" key={set.id} onClick={() => selectSnleQuestionSet(set.id, true)}><span>🇸🇦</span><small>SNLE QUESTION SET</small><h2>{set.label}</h2><p>{set.description}</p><b>Open this set →</b></button>)}</div>
+    <div className="practice-library-grid">{snleQuestionSets.map(set => <button className="practice-library-card snle-card" key={set.id} onClick={() => openSnleQuestionSet(set.id)}><span>🇸🇦</span><small>SNLE QUESTION SET</small><h2>{set.label}</h2><p>{set.description}</p><b>Open this set →</b></button>)}</div>
+  </section></main>;
+
+  if (view === 'usrnSetSetup') return <main className="shell">{header('usrnSetSetup')}<section className="section practice-setup" style={{ marginTop: 0 }}>
+    <button className="back-link" onClick={() => router.push('/practice')}>← Back to exam choices</button><p className="eyebrow">NCLEX-RN practice set</p><h1 className="page-title">Which NCLEX set<br />are we opening?</h1><p className="hero-copy">Each challenge exam has its own saved progress and score. Exam 1 includes select-all-that-apply questions.</p>
+    <div className="practice-library-grid">{usrnQuestionSets.map(set => { const stats = usrnSetStats(set.id); return <button className="practice-library-card usrn-card" key={set.id} onClick={() => openUsrnQuestionSet(set.id)}><span>🇺🇸</span><small>NCLEX-RN QUESTION SET</small><h2>{set.label}</h2><p>{set.description}</p><b>{stats.done}/{stats.total} answered · Open this set →</b></button>; })}</div>
   </section></main>;
 
   if (view === 'practiceSetup') return <main className="shell">{header('practiceSetup')}<section className="section practice-setup" style={{ marginTop: 0 }}>
     <p className="eyebrow">Practice first step</p><h1 className="page-title">Which exam are we<br />playing today?</h1><p className="hero-copy">Pick one library. Its first question will open right away, with only that exam’s progress and rewards.</p>
-    <div className="practice-library-grid"><button className="practice-library-card snle-card" onClick={() => { setExamTrack('SNLE'); setView('snleSetSetup'); }}><span>🇸🇦</span><small>SAUDI ARABIA</small><h2>SNLE</h2><p>Choose from four original practice sets</p><b>Choose an SNLE set →</b></button><button className="practice-library-card pnle-card" onClick={() => selectTrack('PNLE', true)}><span>🇵🇭</span><small>PHILIPPINES</small><h2>PNLE</h2><p>20 original core questions</p><b>Start PNLE practice →</b></button><button className="practice-library-card usrn-card" onClick={() => selectTrack('USRN', true)}><span>🇺🇸</span><small>UNITED STATES</small><h2>USRN 2026</h2><p>40 original NCLEX-RN questions</p><b>Start USRN practice →</b></button></div>
+    <div className="practice-library-grid"><button className="practice-library-card snle-card" onClick={() => router.push('/practice/snle')}><span>🇸🇦</span><small>SAUDI ARABIA</small><h2>SNLE</h2><p>Choose from five practice sets</p><b>Choose an SNLE set →</b></button><button className="practice-library-card pnle-card" onClick={() => selectTrack('PNLE', true)}><span>🇵🇭</span><small>PHILIPPINES</small><h2>PNLE</h2><p>20 original core questions</p><b>Start PNLE practice →</b></button><button className="practice-library-card usrn-card" onClick={() => router.push('/practice/nclex')}><span>🇺🇸</span><small>UNITED STATES</small><h2>USRN 2026</h2><p>Choose an NCLEX-RN practice set</p><b>Choose an NCLEX-RN set →</b></button></div>
   </section></main>;
 
   if (view === 'study') return <main className="shell">{header('study')}<div className="study-layout">
     <aside className="study-controls"><div className="study-controls-head"><h2>Shape your set</h2><button className="mobile-control-toggle" aria-expanded={controlsOpen} aria-controls="study-set-controls" onClick={() => setControlsOpen(open => !open)}>{controlsOpen ? 'Done' : 'Filters'} <span aria-hidden="true">{controlsOpen ? '↑' : '☰'}</span></button></div>
       <div className={`control-body ${controlsOpen ? 'open' : ''}`} id="study-set-controls"><div className="field"><label htmlFor="exam-track">Question library</label><select id="exam-track" value={examTrack} onChange={event => selectTrack(event.target.value as StudyTrack, true)}><option value="SNLE">SNLE · Saudi Arabia</option><option value="PNLE">PNLE · Philippines</option><option value="USRN">USRN · NCLEX-RN 2026</option></select></div>
       {examTrack === 'SNLE' && <div className="field"><label htmlFor="snle-question-set">SNLE practice set</label><select id="snle-question-set" value={snleQuestionSet} onChange={event => selectSnleQuestionSet(event.target.value as SnleQuestionSetId, true)}>{snleQuestionSets.map(set => <option key={set.id} value={set.id}>{set.label}</option>)}</select></div>}
+      {examTrack === 'USRN' && <div className="field"><label htmlFor="usrn-question-set">NCLEX-RN practice set</label><select id="usrn-question-set" value={usrnQuestionSet} onChange={event => selectUsrnQuestionSet(event.target.value as UsrnQuestionSetId, true)}>{usrnQuestionSets.map(set => <option key={set.id} value={set.id}>{set.label}</option>)}</select></div>}
       <p className="library-rule">One library is active at a time. Your countries never mix.</p>
       <div className="field"><label htmlFor="domain">Domain</label><select id="domain" value={domain} onChange={event => { const next = event.target.value as LibraryDomain | 'All domains'; setDomain(next); setTopic('All topics'); setMode('Fresh in selection'); }}><option>All domains</option>{activeDomains.map(item => <option key={item.name}>{item.name}</option>)}</select></div>
       <div className="field"><label htmlFor="topic">Topic</label><select id="topic" value={topic} onChange={event => { setTopic(event.target.value); setMode('Fresh in selection'); }}><option>All topics</option>{topics.map(item => <option key={item}>{item}</option>)}</select></div>
@@ -474,15 +528,15 @@ export default function StudyCompass() {
       <p className="filter-note">Normal modes use each original core question once before a repeat. “All scenario forms” intentionally includes alternate situations for the same clinical concept. “Weak spots rescue” brings back missed, guessed, and unsure answers. Your filter choices apply after you answer this question.</p>
       <div className="progress-caption"><span>{summary.answered} answered</span><span>{activeQuestions.length} {examTrack} questions</span></div><div className="bar"><i style={{ width: `${percent}%` }} /></div></div>
     </aside>
-    <section className="question-card"><div className="question-meta"><span className="tag">{current.track} · {current.domain}</span>{current.track === 'SNLE' && <span className="difficulty">{snleSetLabel}</span>}<span className="difficulty">{current.isAlternateForm ? 'ALTERNATE FORM' : `SCENARIO ${current.variantNumber + 1}`}</span></div>
-      <h1 className="question-title">{current.stem}</h1><div className="answer-list">{current.choices.map((choice, index) => { const wrong = selected !== null && selected === index && index !== current.correctIndex; const correct = selected !== null && index === current.correctIndex && showRationale; return <button className={`answer-btn ${correct ? 'correct' : ''} ${wrong ? 'wrong' : ''}`} disabled={selected !== null} key={choice} onClick={() => saveAnswer(index)}><span className="letter">{letters[index]}</span><span>{choice}</span></button>; })}</div>
-      {selected !== null && <div className={`feedback ${selectedCorrect ? 'good' : 'bad'}`}><h3>{selectedCorrect ? 'Correct — keep the clinical priority.' : 'Not quite — pause before moving on.'}</h3>{showRationale ? <><p className="rationale"><strong>Rationale:</strong> {current.rationale}</p><p className="question-reference">Suggested study reference: <a href={domainReferences[current.domain].href} target="_blank" rel="noreferrer">{domainReferences[current.domain].title} ↗</a></p></> : <p>Select <strong>Reveal answer</strong> to see the correct option and rationale, or move to a new question.</p>}<div className="confidence-check"><span>How did that feel?</span><button className={progress[current.id]?.confidence === 'confident' ? 'selected' : ''} type="button" onClick={() => saveConfidence('confident')}>Confident</button><button className={progress[current.id]?.confidence === 'unsure' ? 'selected' : ''} type="button" onClick={() => saveConfidence('unsure')}>Unsure</button><button className={progress[current.id]?.confidence === 'guessed' ? 'selected' : ''} type="button" onClick={() => saveConfidence('guessed')}>Guessed</button></div></div>}
-      <div className="study-actions"><p className="muted">{selected === null ? <>Pick an answer to unlock the next question.</> : <>Your answer saves {accountUser ? 'to your account and this browser' : 'privately in this browser'}. Mark anything uncertain, then use <strong>Weak spots rescue</strong> for a focused second pass.</>}</p><div className="hero-buttons">{selected !== null && !selectedCorrect && !revealed && <button className="secondary" onClick={() => setRevealed(true)}>Reveal answer</button>}{selected !== null && <button className="primary" onClick={() => startQuestion()}>Next question →</button>}</div></div>
+    <section className="question-card"><div className="question-meta"><span className="tag">{current.track} · {current.domain}</span>{current.track === 'SNLE' && <span className="difficulty">{snleSetLabel}</span>}{current.track === 'USRN' && <span className="difficulty">{usrnSetLabel}</span>}{current.correctIndices?.length && <span className="difficulty">SELECT ALL THAT APPLY</span>}<span className="difficulty">{current.isAlternateForm ? 'ALTERNATE FORM' : `SCENARIO ${current.variantNumber + 1}`}</span></div>
+      <h1 className="question-title">{current.stem}</h1>{current.correctIndices?.length && <p className="filter-note">Select every answer you believe is correct, then check your answer.</p>}<div className="answer-list">{current.choices.map((choice, index) => { const chosen = selected.includes(index); const wrong = answerSubmitted && chosen && !correctIndices.includes(index); const correct = answerSubmitted && correctIndices.includes(index) && showRationale; return <button aria-pressed={chosen} className={`answer-btn ${chosen && !answerSubmitted ? 'selected' : ''} ${correct ? 'correct' : ''} ${wrong ? 'wrong' : ''}`} disabled={answerSubmitted} key={choice} onClick={() => toggleAnswer(index)}><span className="letter">{letters[index]}</span><span>{choice}</span></button>; })}</div>
+      {answerSubmitted && <div className={`feedback ${selectedCorrect ? 'good' : 'bad'}`}><h3>{selectedCorrect ? 'Correct — keep the clinical priority.' : 'Not quite — pause before moving on.'}</h3>{showRationale ? <><p className="rationale"><strong>Rationale:</strong> {current.rationale}</p><p className="question-reference">Suggested study reference: <a href={domainReferences[current.domain].href} target="_blank" rel="noreferrer">{domainReferences[current.domain].title} ↗</a></p></> : <p>Select <strong>Reveal answer</strong> to see the correct option and rationale, or move to a new question.</p>}<div className="confidence-check"><span>How did that feel?</span><button className={progress[current.id]?.confidence === 'confident' ? 'selected' : ''} type="button" onClick={() => saveConfidence('confident')}>Confident</button><button className={progress[current.id]?.confidence === 'unsure' ? 'selected' : ''} type="button" onClick={() => saveConfidence('unsure')}>Unsure</button><button className={progress[current.id]?.confidence === 'guessed' ? 'selected' : ''} type="button" onClick={() => saveConfidence('guessed')}>Guessed</button></div></div>}
+      <div className="study-actions"><p className="muted">{!answerSubmitted ? current.correctIndices?.length ? <>Choose all that apply, then check your answer.</> : <>Pick an answer to unlock the next question.</> : <>Your answer saves {accountUser ? 'to your account and this browser' : 'privately in this browser'}. Mark anything uncertain, then use <strong>Weak spots rescue</strong> for a focused second pass.</>}</p><div className="hero-buttons">{!answerSubmitted && current.correctIndices?.length && <button className="primary" disabled={!selected.length} onClick={() => submitAnswer()}>Check answer</button>}{answerSubmitted && !selectedCorrect && !revealed && <button className="secondary" onClick={() => setRevealed(true)}>Reveal answer</button>}{answerSubmitted && <button className="primary" onClick={() => startQuestion()}>Next question →</button>}</div></div>
     </section>
   </div>{celebration && <div className="celebration-backdrop" role="dialog" aria-modal="true" aria-labelledby="reward-title"><article className="celebration-card"><span>{celebration.emoji}</span><p className="eyebrow">Reward unlocked · {current.track}</p><h2 id="reward-title">{celebration.title}</h2><p>{celebration.message}</p><div className="reward-score"><b>Level {level}</b><span>{player.xp} XP · {player.bestStreak} best streak</span></div><p className="share-note">Screenshot this little win and share it with your mentor or boss—no patient details, just your progress.</p><button className="primary" onClick={() => setCelebration(null)}>Keep playing →</button></article></div>}</main>;
 
   return <main className="shell">{header('home')}<section className="hero"><div><p className="eyebrow">Your little study corner · pick an exam</p><h1>One question.<br />One glow-up.</h1><p className="hero-copy">First choose your question library. Then take friendly clinical challenges, collect XP, and build confidence one calm decision at a time.</p>
-    <div className="library-picker" aria-label="Choose question library"><button className={`library-choice ${examTrack === 'SNLE' ? 'selected' : ''}`} onClick={() => selectTrack('SNLE')}><span>🇸🇦</span><b>SNLE · Saudi Arabia</b><small>60 original core questions</small></button><button className={`library-choice ${examTrack === 'PNLE' ? 'selected' : ''}`} onClick={() => selectTrack('PNLE')}><span>🇵🇭</span><b>PNLE · Philippines</b><small>20 original core questions</small></button><button className={`library-choice ${examTrack === 'USRN' ? 'selected' : ''}`} onClick={() => selectTrack('USRN')}><span>🇺🇸</span><b>USRN · NCLEX-RN 2026</b><small>40 original NCLEX-RN questions</small></button></div>
+    <div className="library-picker" aria-label="Choose question library"><button className={`library-choice ${examTrack === 'SNLE' ? 'selected' : ''}`} onClick={() => selectTrack('SNLE')}><span>🇸🇦</span><b>SNLE · Saudi Arabia</b><small>60 original core questions</small></button><button className={`library-choice ${examTrack === 'PNLE' ? 'selected' : ''}`} onClick={() => selectTrack('PNLE')}><span>🇵🇭</span><b>PNLE · Philippines</b><small>20 original core questions</small></button><button className={`library-choice ${examTrack === 'USRN' ? 'selected' : ''}`} onClick={() => selectTrack('USRN')}><span>🇺🇸</span><b>USRN · NCLEX-RN 2026</b><small>Original bank + 3 challenge exams</small></button></div>
     <p className="library-rule home-rule">Only one library is active at a time: questions, flashcards, progress, XP, and rewards never mix between exams.</p>
     <div className="hero-buttons"><button className="primary" onClick={openNewRound}>Play a new round <span aria-hidden="true">→</span></button>{savedSession && <button className="secondary" onClick={resumeSession}>Resume my round</button>}<button className="secondary" onClick={() => openTrack(examTrack)}>Open study library</button></div>
   </div><aside className="focus-card game-card"><div className="study-companion"><Image className="study-companion-cat" src="/images/nurse-study-cat.jpg" width={900} height={1350} priority unoptimized alt="A cozy nurse cat studying beside nursing notes" /></div><div className="player-card-copy"><p className="eyebrow">{trackLabel} · player card</p><div className="level-orb">{level}</div><h2>Level {level} learner<br /><em>{player.xp} XP collected</em></h2><div className="mini-progress">{Array.from({ length: 8 }, (_, index) => <span className={index < Math.round((player.xp % 100) / 12.5) ? 'done' : ''} key={index} />)}</div><p>{nextReward ? `${Math.max(0, nextReward.threshold - player.correct)} more correct answer${nextReward.threshold - player.correct === 1 ? '' : 's'} to unlock ${nextReward.emoji} ${nextReward.title}.` : 'Every badge is yours—keep your streak glowing.'}</p></div></aside></section>
