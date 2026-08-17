@@ -118,6 +118,26 @@ test('SNLE practice opens a set chooser and keeps the four-choice flow', async (
   await expect(page.locator('.answer-btn')).toHaveCount(4);
 });
 
+test('a completed focused set ends with a saved score summary instead of repeating questions', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /Play a new round/i }).click();
+  await page.getByRole('button', { name: /Nurse Quest originals/i }).click();
+  const filters = page.getByRole('button', { name: 'Filters' });
+  if (await filters.isVisible()) await filters.click();
+  await page.locator('#domain').selectOption('Fundamentals');
+  await page.locator('#topic').selectOption('Fundamentals — Infection prevention');
+  for (let index = 0; index < 10; index += 1) {
+    await page.locator('.answer-btn').last().click();
+    const celebration = page.getByRole('dialog');
+    if (await celebration.isVisible()) await celebration.getByRole('button', { name: /Keep playing/i }).click();
+    await page.getByRole('button', { name: /Next question/i }).click();
+    if (await page.getByRole('heading', { name: /You finished/i }).isVisible()) break;
+  }
+  await expect(page.getByRole('heading', { name: /You finished/i })).toBeVisible();
+  await expect(page.getByText(/correct out of/i)).toBeVisible();
+  await expect(page.getByRole('button', { name: /Review incorrect/i })).toBeVisible();
+});
+
 test('learner can make, review, retain, and keep private flashcards separated by library', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Flashcards' }).click();

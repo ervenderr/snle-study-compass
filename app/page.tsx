@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { domainReferences, domainsForTrack, questions, snleQuestionSets, type LibraryDomain, type Question, type SnleQuestionSetId } from '../lib/questions';
 import { studyResources, type StudyTrack } from '../lib/resources';
 
-type View = 'landing' | 'home' | 'practiceSetup' | 'snleSetSetup' | 'study' | 'flashcards' | 'flashcardStudy' | 'rewards' | 'resources' | 'account';
+type View = 'landing' | 'home' | 'practiceSetup' | 'snleSetSetup' | 'study' | 'results' | 'flashcards' | 'flashcardStudy' | 'rewards' | 'resources' | 'account';
 type Mode = 'Random topics' | 'Fresh in selection' | 'All scenario forms' | 'Review incorrect' | 'Weak spots rescue';
 type Confidence = 'confident' | 'unsure' | 'guessed';
 type StudyRecord = { correct: boolean; selected: number; answeredAt: string; alternate: boolean; confidence?: Confidence };
@@ -16,6 +16,7 @@ type Players = Record<StudyTrack, Player>;
 type CustomFlashcard = { id: string; track: StudyTrack; front: string; back: string; createdAt: string; dueAt: string; intervalDays: number; reviewCount: number; updatedAt: string };
 type AccountUser = { id: string; name: string; email: string };
 type CloudSnapshot = { flashcards: CustomFlashcard[]; progress: Progress; players: Players; savedSession: SavedSession | null };
+type CompletedRound = { track: StudyTrack; questionSet?: SnleQuestionSetId; domain: LibraryDomain | 'All domains'; topic: string; mode: Mode };
 type Celebration = { title: string; message: string; emoji: string } | null;
 type PepTalk = { title: string; message: string; emoji: string } | null;
 
@@ -104,6 +105,7 @@ export default function StudyCompass() {
   const [authChecked, setAuthChecked] = useState(false);
   const [cloudReady, setCloudReady] = useState(false);
   const [cloudStatus, setCloudStatus] = useState<'local' | 'syncing' | 'saved' | 'pending'>('local');
+  const [completedRound, setCompletedRound] = useState<CompletedRound | null>(null);
   const skipInitialSessionWrite = useRef(true);
   const allTrackQuestions = useMemo(() => questions.filter(question => question.track === examTrack && (examTrack !== 'SNLE' || question.questionSet === snleQuestionSet)), [examTrack, snleQuestionSet]);
   const activeQuestions = useMemo(() => allTrackQuestions.filter(question => question.variantNumber === 0), [allTrackQuestions]);
@@ -215,15 +217,19 @@ export default function StudyCompass() {
     return { total: items.length, done: completed.length };
   };
 
-  const pickQuestion = (nextTrack = examTrack, nextDomain = domain, nextTopic = topic, nextMode = mode, nextSnleSet = snleQuestionSet) => {
+  const roundQuestions = (nextTrack = examTrack, nextDomain = domain, nextTopic = topic, nextMode = mode, nextSnleSet = snleQuestionSet) => {
     const allLibraryQuestions = questions.filter(question => question.track === nextTrack && (nextTrack !== 'SNLE' || question.questionSet === nextSnleSet));
     const library = nextMode === 'All scenario forms' ? allLibraryQuestions : allLibraryQuestions.filter(question => question.variantNumber === 0);
     const inSelection = library.filter(question => (nextDomain === 'All domains' || question.domain === nextDomain) && (nextTopic === 'All topics' || question.topic === nextTopic));
-    const pool = nextMode === 'Random topics' ? library : inSelection;
-    if (!pool.length) return library[0];
+    return nextMode === 'Random topics' ? library : inSelection;
+  };
+  const pickQuestion = (nextTrack = examTrack, nextDomain = domain, nextTopic = topic, nextMode = mode, nextSnleSet = snleQuestionSet): Question | null => {
+    const pool = roundQuestions(nextTrack, nextDomain, nextTopic, nextMode, nextSnleSet);
+    if (!pool.length) return null;
     if (nextMode === 'Review incorrect') {
       const incorrect = pool.filter(question => progress[question.id] && !progress[question.id].correct);
       if (incorrect.length) return randomItem(incorrect);
+      return null;
     }
     if (nextMode === 'Weak spots rescue') {
       const weak = pool.filter(question => {
@@ -231,24 +237,25 @@ export default function StudyCompass() {
         return record && (!record.correct || record.confidence === 'guessed' || record.confidence === 'unsure');
       });
       if (weak.length) return randomItem(weak);
+      return null;
     }
-    const unseen = pool.filter(question => !progress[question.id] && question.id !== current.id);
+    const unseen = pool.filter(question => !progress[question.id]);
     if (unseen.length) return randomItem(unseen);
-    const differentForm = pool.filter(question => question.id !== current.id);
-    if (differentForm.length) return randomItem(differentForm);
-    return alternateForm(pool[0]);
+    return null;
   };
   const startQuestion = (nextTrack = examTrack, nextDomain = domain, nextTopic = topic, nextMode = mode, nextSnleSet = snleQuestionSet) => {
-    setCurrent(pickQuestion(nextTrack, nextDomain, nextTopic, nextMode, nextSnleSet));
+    const next = pickQuestion(nextTrack, nextDomain, nextTopic, nextMode, nextSnleSet);
+    if (!next) { setCompletedRound({ track: nextTrack, questionSet: nextTrack === 'SNLE' ? nextSnleSet : undefined, domain: nextDomain, topic: nextTopic, mode: nextMode }); setView('results'); return; }
+    setCurrent(next);
     setSelected(null); setRevealed(false);
   };
   const selectTrack = (track: StudyTrack, start = false) => {
     setExamTrack(track); setDomain('All domains'); setTopic('All topics'); setMode('Random topics'); setFlipped(new Set());
-    if (start) { startQuestion(track, 'All domains', 'All topics', 'Random topics'); setView('study'); }
+    if (start) { setView('study'); startQuestion(track, 'All domains', 'All topics', 'Random topics'); }
   };
   const selectSnleQuestionSet = (set: SnleQuestionSetId, start = false) => {
     setExamTrack('SNLE'); setSnleQuestionSet(set); setDomain('All domains'); setTopic('All topics'); setMode('Random topics'); setFlipped(new Set());
-    if (start) { startQuestion('SNLE', 'All domains', 'All topics', 'Random topics', set); setView('study'); }
+    if (start) { setView('study'); startQuestion('SNLE', 'All domains', 'All topics', 'Random topics', set); }
   };
   const saveAnswer = (index: number) => {
     if (selected !== null) return;
@@ -338,7 +345,7 @@ export default function StudyCompass() {
   };
   const closePepTalk = () => { setPepTalk(null); try { window.localStorage.setItem(pepTalkKey, 'seen'); } catch {} };
   const openTrack = (track: StudyTrack) => { setResourceTrack(track); setView('resources'); };
-  const chooseDomain = (nextDomain: LibraryDomain) => { setDomain(nextDomain); setTopic('All topics'); setMode('Fresh in selection'); startQuestion(examTrack, nextDomain, 'All topics', 'Fresh in selection'); setView('study'); };
+  const chooseDomain = (nextDomain: LibraryDomain) => { setDomain(nextDomain); setTopic('All topics'); setMode('Fresh in selection'); setView('study'); startQuestion(examTrack, nextDomain, 'All topics', 'Fresh in selection'); };
   const resumeSession = () => {
     if (!savedSession) return;
     const validTrack = savedSession.track === 'PNLE' || savedSession.track === 'USRN' ? savedSession.track : 'SNLE';
@@ -366,6 +373,15 @@ export default function StudyCompass() {
   const trackLabel = examTrack === 'SNLE' ? 'SNLE · Saudi Arabia' : examTrack === 'PNLE' ? 'PNLE · Philippines' : 'USRN · NCLEX-RN 2026';
   const snleSetLabel = snleQuestionSets.find(set => set.id === snleQuestionSet)?.label || 'Nurse Quest originals';
   const openNewRound = () => examTrack === 'SNLE' ? setView('snleSetSetup') : selectTrack(examTrack, true);
+  const completedQuestions = completedRound ? roundQuestions(completedRound.track, completedRound.domain, completedRound.topic, completedRound.mode, completedRound.questionSet || 'nurse-quest-originals') : [];
+  const completedRecords = completedQuestions.map(question => progress[question.id]).filter((record): record is StudyRecord => Boolean(record));
+  const completedCorrect = completedRecords.filter(record => record.correct).length;
+  const completedAccuracy = completedRecords.length ? Math.round(completedCorrect / completedRecords.length * 100) : 0;
+  const completedLabel = completedRound?.track === 'SNLE' ? snleQuestionSets.find(set => set.id === completedRound.questionSet)?.label || 'Nurse Quest originals' : completedRound?.track === 'PNLE' ? 'PNLE question library' : 'USRN / NCLEX-RN 2026 question library';
+  const continueCompletedRound = (nextMode: Mode) => {
+    if (!completedRound) return;
+    setMode(nextMode); setView('study'); startQuestion(completedRound.track, completedRound.domain, completedRound.topic, nextMode, completedRound.questionSet || 'nurse-quest-originals');
+  };
 
   const header = (active: View) => <header className="nav">
     <button className="brand" onClick={() => navigate(accountUser ? 'home' : 'landing')} aria-label="Nurse Quest home"><span className="mark">N</span> Nurse Quest</button>
@@ -392,6 +408,8 @@ export default function StudyCompass() {
       <div className="custom-form-foot"><small>{accountMode === 'signin' ? 'Welcome back — your learning space is waiting.' : 'Your password is never stored in plain text.'}</small><button className="primary" type="submit" disabled={accountLoading}>{accountLoading ? 'Please wait…' : accountMode === 'signin' ? 'Continue →' : 'Create my account →'}</button></div>{accountError && <p className="custom-card-error" role="alert">{accountError}</p>}
     </form></>}
   </section></main>;
+
+  if (view === 'results' && completedRound) return <main className="shell">{header('results')}<section className="results-panel" style={{ marginTop: 0 }}><p className="eyebrow">Round complete · {completedLabel}</p><h1 className="page-title">You finished<br />this set.</h1><p className="hero-copy">Your score and every answered question are saved to your account. Use the next round to reinforce the areas that need another look.</p><div className="results-score"><strong>{completedAccuracy}%</strong><span>{completedCorrect} correct out of {completedQuestions.length}</span></div><div className="results-breakdown">{[...new Set(completedQuestions.map(question => question.domain))].map(resultDomain => { const items = completedQuestions.filter(question => question.domain === resultDomain); const correct = items.filter(question => progress[question.id]?.correct).length; return <article key={resultDomain}><span>{resultDomain}</span><b>{correct}/{items.length}</b></article>; })}</div><div className="results-actions"><button className="primary" onClick={() => continueCompletedRound('Review incorrect')}>Review incorrect →</button><button className="secondary" onClick={() => continueCompletedRound('Weak spots rescue')}>Weak Spots Rescue</button><button className="secondary" onClick={() => navigate('home')}>Back to overview</button></div><p className="source-note">This set will remain marked as complete. Its progress is separate from your other exam libraries and question sets.</p></section></main>;
 
   if (view === 'resources') return <main className="shell">{header('resources')}<section className="section" style={{ marginTop: 0 }}>
     <p className="eyebrow">Your study library</p><h1 className="page-title">Choose the exam first.<br />Then choose what helps.</h1>
@@ -454,7 +472,7 @@ export default function StudyCompass() {
       <div className="field"><label htmlFor="topic">Topic</label><select id="topic" value={topic} onChange={event => { setTopic(event.target.value); setMode('Fresh in selection'); }}><option>All topics</option>{topics.map(item => <option key={item}>{item}</option>)}</select></div>
       <div className="field"><label htmlFor="mode">Mode</label><select id="mode" value={mode} onChange={event => setMode(event.target.value as Mode)}><option>Random topics</option><option>Fresh in selection</option><option>All scenario forms</option><option>Review incorrect</option><option>Weak spots rescue</option></select></div>
       <p className="filter-note">Normal modes use each original core question once before a repeat. “All scenario forms” intentionally includes alternate situations for the same clinical concept. “Weak spots rescue” brings back missed, guessed, and unsure answers. Your filter choices apply after you answer this question.</p>
-      <div className="progress-caption"><span>{summary.answered} answered</span><span>{activeQuestions.length} {examTrack} forms</span></div><div className="bar"><i style={{ width: `${percent}%` }} /></div></div>
+      <div className="progress-caption"><span>{summary.answered} answered</span><span>{activeQuestions.length} {examTrack} questions</span></div><div className="bar"><i style={{ width: `${percent}%` }} /></div></div>
     </aside>
     <section className="question-card"><div className="question-meta"><span className="tag">{current.track} · {current.domain}</span>{current.track === 'SNLE' && <span className="difficulty">{snleSetLabel}</span>}<span className="difficulty">{current.isAlternateForm ? 'ALTERNATE FORM' : `SCENARIO ${current.variantNumber + 1}`}</span></div>
       <h1 className="question-title">{current.stem}</h1><div className="answer-list">{current.choices.map((choice, index) => { const wrong = selected !== null && selected === index && index !== current.correctIndex; const correct = selected !== null && index === current.correctIndex && showRationale; return <button className={`answer-btn ${correct ? 'correct' : ''} ${wrong ? 'wrong' : ''}`} disabled={selected !== null} key={choice} onClick={() => saveAnswer(index)}><span className="letter">{letters[index]}</span><span>{choice}</span></button>; })}</div>
