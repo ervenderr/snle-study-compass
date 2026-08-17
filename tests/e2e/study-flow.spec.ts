@@ -34,6 +34,36 @@ test('a temporary cloud-sync failure does not sign out an authenticated learner'
   await expect(page.getByRole('heading', { name: /Which exam are we/i })).toBeVisible();
 });
 
+test('a temporary session-check failure shows a retry state instead of a login screen', async ({ page }) => {
+  await page.unroute('**/api/auth/get-session');
+  await page.route('**/api/auth/get-session', route => route.fulfill({ status: 503, json: { error: 'Authentication is temporarily unavailable.' } }));
+
+  await page.goto('/');
+  await expect(page.getByText(/could not reach your study space/i)).toBeVisible();
+  await expect(page.getByRole('button', { name: /Try again/i })).toBeVisible();
+  await expect(page.getByText(/Come in\. Your progress is here/i)).toHaveCount(0);
+});
+
+test('primary navigation uses shareable URLs without signing out the learner', async ({ page }) => {
+  await page.goto('/');
+
+  await page.getByRole('button', { name: 'Flashcards', exact: true }).click();
+  await expect(page).toHaveURL(/\/flashcards$/);
+  await expect(page.getByLabel(/Front of card/i)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Rewards', exact: true }).click();
+  await expect(page).toHaveURL(/\/rewards$/);
+  await expect(page.getByText(/Every answer is/i)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Library', exact: true }).click();
+  await expect(page).toHaveURL(/\/library$/);
+  await expect(page.getByRole('heading', { name: /SNLE question library/i })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Account', exact: true }).click();
+  await expect(page).toHaveURL(/\/account$/);
+  await expect(page.getByText(/Cloud study space/i)).toBeVisible();
+});
+
 test('learner can practise, reveal a rationale, continue, and review a flashcard', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', error => pageErrors.push(error.message));

@@ -109,6 +109,7 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
   const [accountMode, setAccountMode] = useState<'signin' | 'signup'>('signin');
   const [showPassword, setShowPassword] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [authUnavailable, setAuthUnavailable] = useState(false);
   const [cloudReady, setCloudReady] = useState(false);
   const [cloudStatus, setCloudStatus] = useState<'local' | 'syncing' | 'saved' | 'pending'>('local');
   const [completedRound, setCompletedRound] = useState<CompletedRound | null>(null);
@@ -164,8 +165,9 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
   const loadCloudAccount = useCallback(async () => {
     setAccountLoading(true);
     try {
-      const session = await api<{ user?: AccountUser }>('/auth/get-session');
-      if (!session.user) { setAccountUser(null); setCloudReady(false); setCloudStatus('local'); return; }
+      const session = await api<{ user?: AccountUser } | null>('/auth/get-session');
+      setAuthUnavailable(false);
+      if (!session?.user) { setAccountUser(null); setCloudReady(false); setCloudStatus('local'); return; }
       setAccountUser(session.user);
       try {
         const snapshot = await api<CloudSnapshot>('/sync');
@@ -177,7 +179,10 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
       }
       setCloudReady(true);
       setView(current => current === 'landing' ? 'home' : current);
-    } catch { setAccountUser(null); setCloudReady(false); setCloudStatus('local'); }
+    } catch {
+      // Do not mislabel a temporary session-check failure as a logout.
+      setCloudReady(false); setCloudStatus('pending'); setAuthUnavailable(true);
+    }
     finally { setAuthChecked(true); setAccountLoading(false); }
   }, [applyCloudSnapshot]);
 
@@ -195,7 +200,13 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
 
   useEffect(() => {
     setProgress(loadProgress());
-    setSavedSession(loadSession());
+    const localSession = loadSession();
+    setSavedSession(localSession);
+    if (localSession) {
+      setExamTrack(localSession.track);
+      if (localSession.track === 'SNLE') setSnleQuestionSet((localSession.questionSet as SnleQuestionSetId) || 'nurse-quest-originals');
+      if (localSession.track === 'USRN') setUsrnQuestionSet((localSession.questionSet as UsrnQuestionSetId) || 'nurse-quest-originals');
+    }
     setPlayers(loadPlayers());
     setCustomFlashcards(loadCustomFlashcards());
     setDeletedFlashcardIds(loadDeletedFlashcards());
@@ -386,7 +397,7 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
   };
   const signOut = async () => {
     try { await api('/auth/sign-out', { method: 'POST', body: JSON.stringify({}) }); } catch {}
-    setAccountUser(null); setCloudReady(false); setCloudStatus('local'); navigate('landing');
+    setAccountUser(null); setCloudReady(false); setCloudStatus('local'); setAuthUnavailable(false); navigate('landing');
   };
 
   const openAccount = (nextMode: 'signin' | 'signup' = 'signin') => { setAccountMode(nextMode); setAccountError(''); setShowPassword(false); setView('account'); };
@@ -438,18 +449,20 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
   };
 
   const header = (active: View) => <header className="nav">
-    <button className="brand" onClick={() => navigate(accountUser ? 'home' : 'landing')} aria-label="Nurse Quest home"><span className="mark">N</span> Nurse Quest</button>
+    <button className="brand" onClick={() => router.push(accountUser ? '/overview' : '/')} aria-label="Nurse Quest home"><span className="mark">N</span> Nurse Quest</button>
     {!accountUser ? <div className="nav-actions"><button className="nav-link" onClick={() => openAccount('signin')}>Sign in</button><button className="primary nav-cta" onClick={() => openAccount('signup')}>Create account</button></div> : <div className="nav-actions">
-      <button className={`nav-link ${active === 'home' ? 'active' : ''}`} onClick={() => navigate('home')}>Overview</button>
+      <button className={`nav-link ${active === 'home' ? 'active' : ''}`} onClick={() => router.push('/overview')}>Overview</button>
       <button className={`nav-link ${active === 'study' || active === 'practiceSetup' || active === 'snleSetSetup' || active === 'usrnSetSetup' ? 'active' : ''}`} onClick={() => router.push('/practice')}>Practice</button>
-      <button className={`nav-link ${active === 'flashcards' ? 'active' : ''}`} onClick={() => navigate('flashcards')}>Flashcards</button>
-      <button className={`nav-link ${active === 'rewards' ? 'active' : ''}`} onClick={() => navigate('rewards')}>Rewards</button>
-      <button className={`nav-link ${active === 'resources' ? 'active' : ''}`} onClick={() => openTrack(examTrack)}>Library</button>
-      <button className={`nav-link ${active === 'account' ? 'active' : ''}`} onClick={() => navigate('account')}>Account</button>
+      <button className={`nav-link ${active === 'flashcards' ? 'active' : ''}`} onClick={() => router.push('/flashcards')}>Flashcards</button>
+      <button className={`nav-link ${active === 'rewards' ? 'active' : ''}`} onClick={() => router.push('/rewards')}>Rewards</button>
+      <button className={`nav-link ${active === 'resources' ? 'active' : ''}`} onClick={() => router.push('/library')}>Library</button>
+      <button className={`nav-link ${active === 'account' ? 'active' : ''}`} onClick={() => router.push('/account')}>Account</button>
     </div>}
   </header>;
 
   if (!authChecked) return <main className="shell"><section className="auth-loading" aria-live="polite"><span className="mark">N</span><p>Opening your study space…</p></section></main>;
+
+  if (authUnavailable) return <main className="shell"><section className="auth-loading" aria-live="polite"><span className="mark">N</span><p>We could not reach your study space just now.</p><button className="primary" type="button" onClick={() => void loadCloudAccount()}>Try again</button></section></main>;
 
   if (!accountUser && view === 'landing') return <main className="shell landing-shell">{header('landing')}<section className="landing-hero"><div className="landing-copy"><p className="eyebrow">Nursing exam practice, made personal</p><h1>Your calm corner<br />for the next exam.</h1><p>Original SNLE, PNLE, and USRN practice, flashcards, focused rescue rounds, and progress that follows you from one study session to the next.</p><div className="hero-buttons"><button className="primary" onClick={() => openAccount('signup')}>Create your free account <span aria-hidden="true">→</span></button><button className="secondary" onClick={() => openAccount('signin')}>I already have an account</button></div><p className="landing-note">Your study history stays private to your account.</p></div><div className="landing-preview" aria-label="A preview of the Nurse Quest study experience"><div className="preview-glow" /><p className="eyebrow">Your next session</p><div className="preview-question"><span>SNLE · Fundamentals</span><h2>One clear question at a time.</h2><div><i /><i /><i /><i /></div></div><div className="preview-stats"><span>✦ Weak spots rescue</span><span>☁ Progress saved</span></div></div></section><section className="landing-benefits"><article><span>🧠</span><h2>Practice with purpose</h2><p>Choose a question library, a domain, or a focused round whenever you sit down.</p></article><article><span>🗂️</span><h2>Make it yours</h2><p>Build private flashcards from your own notes and review them on your schedule.</p></article><article><span>↗</span><h2>Pick up anywhere</h2><p>Your questions, rewards, cards, and current round are kept with your account.</p></article></section></main>;
 
