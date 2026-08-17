@@ -1,0 +1,16 @@
+{
+  "name": "nurse-quest-api",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.9.0 <25" },
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.1",
+    "better-auth": "1.6.29",
+    "better-sqlite3": "12.11.1",
+    "hono": "4.13.2"
+  }
+}

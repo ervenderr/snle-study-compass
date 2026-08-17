@@ -40,6 +40,22 @@ A deployable Next.js study companion with three explicitly separate libraries: S
 
 **Status: LOCKED.** Re-run the architecture review before adding accounts, cloud sync, shared decks, file imports, or AI card generation.
 
+## Architecture decision — authenticated cloud study data — 2026-08-17
+
+**Data model.** Better Auth owns `user`, `session`, `account`, and verification records. The app owns `flashcards`, `study_records`, `players`, and `saved_sessions`, each scoped by the authenticated user id. Flashcards use soft deletion so a deletion syncs safely across devices. Existing browser data is imported once after a learner creates an account; browser storage remains an offline fallback.
+
+**Service boundary.** Vercel continues to host the static frontend at `snle-study-compass.vercel.app`. Its `/api/*` paths reverse-proxy to one Railway API service, so session cookies remain first-party to the Vercel site. Railway runs Better Auth, Hono, and SQLite on a persistent volume. The API is the sole reader/writer of learner data; the original question library stays bundled in the public frontend.
+
+**Authentication.** Launch uses email and password. Passwords are never handled by the study UI beyond the HTTPS request to Better Auth, which hashes them with its default memory-hard algorithm. Sessions use secure, HTTP-only, same-site cookies through the Vercel proxy. Email verification and password recovery require a transactional-email provider configured in Railway before public promotion beyond this initial password-only launch.
+
+**Failure handling.** The app writes locally first and retries cloud sync in the background. A Railway outage never removes the current browser data; the UI reports pending sync. Server writes are parameterized and user-scoped. Authentication attempts are rate-limited. Enable a daily Railway volume backup before relying on the service as the only copy of a learner's data.
+
+**Dependencies.** The isolated API uses `better-auth@1.6.29`, `better-sqlite3@12.11.1`, `hono@4.13.2`, and `@hono/node-server@2.1.1` (all MIT). No database driver or auth code is bundled into the Vercel frontend.
+
+**Rollback.** Disable the Vercel `/api/*` rewrite and the frontend returns to browser-only storage. The Railway volume is retained; restoring a backup or redeploying a prior API image does not modify the question library. Do not delete the volume as part of a rollback.
+
+**Security gate.** CONDITIONAL until a transactional-email provider and daily backup are configured. Railway secrets, the Vercel rewrite, rate limits, and production headers must be verified after every auth change. Never put patient-identifiable information into cards.
+
 ## Content guardrails
 
 - Question stems and rationales are original learning material, not official exam items.

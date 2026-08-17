@@ -1,18 +1,21 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import Image from 'next/image';
 import { domainReferences, domainsForTrack, questions, snleQuestionSets, type LibraryDomain, type Question, type SnleQuestionSetId } from '../lib/questions';
 import { studyResources, type StudyTrack } from '../lib/resources';
 
-type View = 'home' | 'practiceSetup' | 'snleSetSetup' | 'study' | 'flashcards' | 'flashcardStudy' | 'rewards' | 'resources';
-type Mode = 'Random topics' | 'Fresh in selection' | 'All scenario forms' | 'Review incorrect';
-type StudyRecord = { correct: boolean; selected: number; answeredAt: string; alternate: boolean };
+type View = 'home' | 'practiceSetup' | 'snleSetSetup' | 'study' | 'flashcards' | 'flashcardStudy' | 'rewards' | 'resources' | 'account';
+type Mode = 'Random topics' | 'Fresh in selection' | 'All scenario forms' | 'Review incorrect' | 'Weak spots rescue';
+type Confidence = 'confident' | 'unsure' | 'guessed';
+type StudyRecord = { correct: boolean; selected: number; answeredAt: string; alternate: boolean; confidence?: Confidence };
 type Progress = Record<string, StudyRecord>;
 type SavedSession = { current: Question; track: StudyTrack; questionSet?: SnleQuestionSetId; domain: LibraryDomain | 'All domains'; topic: string; mode: Mode; selected: number | null; revealed: boolean; savedAt: string };
-type Player = { xp: number; streak: number; bestStreak: number; correct: number; unlocked: string[] };
+type Player = { xp: number; streak: number; bestStreak: number; correct: number; unlocked: string[]; updatedAt: string };
 type Players = Record<StudyTrack, Player>;
-type CustomFlashcard = { id: string; track: StudyTrack; front: string; back: string; createdAt: string; dueAt: string; intervalDays: number; reviewCount: number };
+type CustomFlashcard = { id: string; track: StudyTrack; front: string; back: string; createdAt: string; dueAt: string; intervalDays: number; reviewCount: number; updatedAt: string };
+type AccountUser = { id: string; name: string; email: string };
+type CloudSnapshot = { flashcards: CustomFlashcard[]; progress: Progress; players: Players; savedSession: SavedSession | null };
 type Celebration = { title: string; message: string; emoji: string } | null;
 type PepTalk = { title: string; message: string; emoji: string } | null;
 
@@ -21,6 +24,7 @@ const sessionKey = 'snle-study-compass-session-v1';
 const playerKey = 'snle-study-compass-player-v1';
 const pepTalkKey = 'nurse-quest-pep-talk-v1';
 const customFlashcardsKey = 'nurse-quest-custom-flashcards-v1';
+const deletedFlashcardsKey = 'nurse-quest-deleted-flashcards-v1';
 const letters = ['A', 'B', 'C', 'D'];
 const rewards = [
   { id: 'spark', threshold: 1, emoji: '⭐', title: 'First Spark', message: 'One correct answer is a real beginning.' },
@@ -29,7 +33,7 @@ const rewards = [
   { id: 'charger', threshold: 50, emoji: '⚡', title: 'Care Charger', message: 'Fifty correct answers—your revision energy is showing.' },
   { id: 'legend', threshold: 100, emoji: '🏆', title: 'Study Legend', message: 'One hundred correct answers. That is serious momentum.' },
 ];
-const emptyPlayer = (): Player => ({ xp: 0, streak: 0, bestStreak: 0, correct: 0, unlocked: [] });
+const emptyPlayer = (): Player => ({ xp: 0, streak: 0, bestStreak: 0, correct: 0, unlocked: [], updatedAt: new Date(0).toISOString() });
 const randomItem = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)];
 
 function loadProgress(): Progress { try { return JSON.parse(window.localStorage.getItem(storageKey) || '{}') as Progress; } catch { return {}; } }
@@ -43,8 +47,9 @@ function loadSession(): SavedSession | null {
 function loadPlayers(): Players {
   try {
     const saved = JSON.parse(window.localStorage.getItem(playerKey) || 'null') as Partial<Players & Player> | null;
-    if (saved && 'SNLE' in saved) return { SNLE: saved.SNLE as Player, PNLE: (saved.PNLE as Player) || emptyPlayer(), USRN: (saved.USRN as Player) || emptyPlayer() };
-    return { SNLE: (saved && 'xp' in saved ? saved : emptyPlayer()) as Player, PNLE: emptyPlayer(), USRN: emptyPlayer() };
+    const withTimestamp = (player: Partial<Player> | null | undefined): Player => ({ ...emptyPlayer(), ...player, updatedAt: typeof player?.updatedAt === 'string' ? player.updatedAt : new Date(0).toISOString() });
+    if (saved && 'SNLE' in saved) return { SNLE: withTimestamp(saved.SNLE), PNLE: withTimestamp(saved.PNLE), USRN: withTimestamp(saved.USRN) };
+    return { SNLE: withTimestamp(saved && 'xp' in saved ? saved : null), PNLE: emptyPlayer(), USRN: emptyPlayer() };
   } catch { return { SNLE: emptyPlayer(), PNLE: emptyPlayer(), USRN: emptyPlayer() }; }
 }
 function loadCustomFlashcards(): CustomFlashcard[] {
@@ -55,9 +60,10 @@ function loadCustomFlashcards(): CustomFlashcard[] {
       typeof card.id === 'string' && (card.track === 'SNLE' || card.track === 'PNLE' || card.track === 'USRN') &&
       typeof card.front === 'string' && typeof card.back === 'string' && typeof card.createdAt === 'string' &&
       typeof card.dueAt === 'string' && typeof card.intervalDays === 'number' && Number.isFinite(card.intervalDays) &&
-      typeof card.reviewCount === 'number' && Number.isFinite(card.reviewCount));
+      typeof card.reviewCount === 'number' && Number.isFinite(card.reviewCount)).map(card => ({ ...card, updatedAt: typeof (card as Partial<CustomFlashcard>).updatedAt === 'string' ? (card as CustomFlashcard).updatedAt : card.createdAt }));
   } catch { return []; }
 }
+function loadDeletedFlashcards(): string[] { try { const saved = JSON.parse(window.localStorage.getItem(deletedFlashcardsKey) || '[]') as unknown; return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string') : []; } catch { return []; } }
 
 function alternateForm(question: Question): Question {
   const frames = ['During a focused clinical handover, ', 'In a comparable but newly presented scenario, ', 'While prioritizing care on a busy shift, ', 'During a safety review with the nursing team, '];
@@ -80,6 +86,7 @@ export default function StudyCompass() {
   const [flashcardMode, setFlashcardMode] = useState<'clinical' | 'custom'>('clinical');
   const [currentFlashcard, setCurrentFlashcard] = useState<Question | CustomFlashcard | null>(null);
   const [customFlashcards, setCustomFlashcards] = useState<CustomFlashcard[]>([]);
+  const [deletedFlashcardIds, setDeletedFlashcardIds] = useState<string[]>([]);
   const [customFront, setCustomFront] = useState('');
   const [customBack, setCustomBack] = useState('');
   const [customFlashcardError, setCustomFlashcardError] = useState('');
@@ -89,19 +96,95 @@ export default function StudyCompass() {
   const [celebration, setCelebration] = useState<Celebration>(null);
   const [pepTalk, setPepTalk] = useState<PepTalk>(null);
   const [resourceTrack, setResourceTrack] = useState<StudyTrack>('SNLE');
+  const [accountUser, setAccountUser] = useState<AccountUser | null>(null);
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [accountError, setAccountError] = useState('');
+  const [accountMode, setAccountMode] = useState<'signin' | 'signup'>('signin');
+  const [cloudReady, setCloudReady] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState<'local' | 'syncing' | 'saved' | 'pending'>('local');
   const skipInitialSessionWrite = useRef(true);
   const allTrackQuestions = useMemo(() => questions.filter(question => question.track === examTrack && (examTrack !== 'SNLE' || question.questionSet === snleQuestionSet)), [examTrack, snleQuestionSet]);
   const activeQuestions = useMemo(() => allTrackQuestions.filter(question => question.variantNumber === 0), [allTrackQuestions]);
   const activeDomains = useMemo(() => domainsForTrack(examTrack), [examTrack]);
   const player = players[examTrack];
 
+  const api = async <T,>(path: string, init?: RequestInit): Promise<T> => {
+    const response = await fetch(`/api${path}`, { ...init, credentials: 'include', headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) } });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : 'Something went wrong. Please try again.');
+    return data as T;
+  };
+
+  const applyCloudSnapshot = useCallback((snapshot: CloudSnapshot) => {
+    setProgress(local => {
+      const merged = { ...local };
+      for (const [id, remote] of Object.entries(snapshot.progress || {})) if (!merged[id] || new Date(remote.answeredAt).getTime() >= new Date(merged[id].answeredAt).getTime()) merged[id] = remote;
+      try { window.localStorage.setItem(storageKey, JSON.stringify(merged)); } catch {}
+      return merged;
+    });
+    setPlayers(local => {
+      const merged = { ...local };
+      for (const track of ['SNLE', 'PNLE', 'USRN'] as StudyTrack[]) {
+        const remote = snapshot.players?.[track];
+        if (remote && new Date(remote.updatedAt).getTime() >= new Date(merged[track].updatedAt).getTime()) merged[track] = remote;
+      }
+      try { window.localStorage.setItem(playerKey, JSON.stringify(merged)); } catch {}
+      return merged;
+    });
+    setCustomFlashcards(local => {
+      const merged = new Map(local.map(card => [card.id, card]));
+      for (const remote of snapshot.flashcards || []) {
+        const localCard = merged.get(remote.id);
+        if (!localCard || new Date(remote.updatedAt).getTime() >= new Date(localCard.updatedAt).getTime()) merged.set(remote.id, remote);
+      }
+      const next = [...merged.values()].filter(card => !deletedFlashcardIds.includes(card.id));
+      try { window.localStorage.setItem(customFlashcardsKey, JSON.stringify(next)); } catch {}
+      return next;
+    });
+    if (snapshot.savedSession) setSavedSession(local => !local || new Date(snapshot.savedSession!.savedAt).getTime() >= new Date(local.savedAt).getTime() ? snapshot.savedSession : local);
+  }, [deletedFlashcardIds]);
+
+  const loadCloudAccount = useCallback(async () => {
+    setAccountLoading(true);
+    try {
+      const session = await api<{ user?: AccountUser }>('/auth/get-session');
+      if (!session.user) { setCloudReady(false); setCloudStatus('local'); return; }
+      setAccountUser(session.user);
+      const snapshot = await api<CloudSnapshot>('/sync');
+      applyCloudSnapshot(snapshot);
+      setCloudReady(true); setCloudStatus('saved');
+    } catch { setCloudReady(false); setCloudStatus('local'); }
+    finally { setAccountLoading(false); }
+  }, [applyCloudSnapshot]);
+
+  const syncCloud = useCallback(async () => {
+    if (!accountUser || !cloudReady) return;
+    setCloudStatus('syncing');
+    try {
+      const snapshot = await api<CloudSnapshot>('/sync', { method: 'PUT', body: JSON.stringify({ flashcards: customFlashcards, deletedFlashcardIds, progress, players, savedSession }) });
+      applyCloudSnapshot(snapshot);
+      setDeletedFlashcardIds([]);
+      try { window.localStorage.removeItem(deletedFlashcardsKey); } catch {}
+      setCloudStatus('saved');
+    } catch { setCloudStatus('pending'); }
+  }, [accountUser, applyCloudSnapshot, cloudReady, customFlashcards, deletedFlashcardIds, players, progress, savedSession]);
+
   useEffect(() => {
     setProgress(loadProgress());
     setSavedSession(loadSession());
     setPlayers(loadPlayers());
     setCustomFlashcards(loadCustomFlashcards());
+    setDeletedFlashcardIds(loadDeletedFlashcards());
     setStorageLoaded(true);
   }, []);
+
+  useEffect(() => { if (storageLoaded) void loadCloudAccount(); }, [loadCloudAccount, storageLoaded]);
+
+  useEffect(() => {
+    if (!cloudReady) return;
+    const timer = window.setTimeout(() => { void syncCloud(); }, 800);
+    return () => window.clearTimeout(timer);
+  }, [cloudReady, customFlashcards, deletedFlashcardIds, players, progress, savedSession, syncCloud]);
 
   useEffect(() => {
     if (!storageLoaded || window.localStorage.getItem(pepTalkKey)) return;
@@ -139,6 +222,13 @@ export default function StudyCompass() {
       const incorrect = pool.filter(question => progress[question.id] && !progress[question.id].correct);
       if (incorrect.length) return randomItem(incorrect);
     }
+    if (nextMode === 'Weak spots rescue') {
+      const weak = pool.filter(question => {
+        const record = progress[question.id];
+        return record && (!record.correct || record.confidence === 'guessed' || record.confidence === 'unsure');
+      });
+      if (weak.length) return randomItem(weak);
+    }
     const unseen = pool.filter(question => !progress[question.id] && question.id !== current.id);
     if (unseen.length) return randomItem(unseen);
     const differentForm = pool.filter(question => question.id !== current.id);
@@ -160,7 +250,7 @@ export default function StudyCompass() {
   const saveAnswer = (index: number) => {
     if (selected !== null) return;
     const isCorrect = index === current.correctIndex;
-    const nextProgress = { ...progress, [current.id]: { correct: isCorrect, selected: index, answeredAt: new Date().toISOString(), alternate: current.isAlternateForm } };
+    const nextProgress = { ...progress, [current.id]: { correct: isCorrect, selected: index, answeredAt: new Date().toISOString(), alternate: current.isAlternateForm, confidence: isCorrect ? 'unsure' as Confidence : 'guessed' as Confidence } };
     setSelected(index); setProgress(nextProgress);
     try { window.localStorage.setItem(storageKey, JSON.stringify(nextProgress)); } catch {}
     setPlayers(previous => {
@@ -168,12 +258,19 @@ export default function StudyCompass() {
       const nextCorrect = previousTrack.correct + (isCorrect ? 1 : 0);
       const nextStreak = isCorrect ? previousTrack.streak + 1 : 0;
       const newlyUnlocked = isCorrect ? rewards.find(reward => nextCorrect >= reward.threshold && !previousTrack.unlocked.includes(reward.id)) : undefined;
-      const nextPlayer: Player = { xp: previousTrack.xp + (isCorrect ? 12 + Math.min(nextStreak, 8) : 2), streak: nextStreak, bestStreak: Math.max(previousTrack.bestStreak, nextStreak), correct: nextCorrect, unlocked: newlyUnlocked ? [...previousTrack.unlocked, newlyUnlocked.id] : previousTrack.unlocked };
+      const nextPlayer: Player = { xp: previousTrack.xp + (isCorrect ? 12 + Math.min(nextStreak, 8) : 2), streak: nextStreak, bestStreak: Math.max(previousTrack.bestStreak, nextStreak), correct: nextCorrect, unlocked: newlyUnlocked ? [...previousTrack.unlocked, newlyUnlocked.id] : previousTrack.unlocked, updatedAt: new Date().toISOString() };
       const next = { ...previous, [current.track]: nextPlayer };
       try { window.localStorage.setItem(playerKey, JSON.stringify(next)); } catch {}
       if (newlyUnlocked) setCelebration(newlyUnlocked);
       return next;
     });
+  };
+  const saveConfidence = (confidence: Confidence) => {
+    const existing = progress[current.id];
+    if (!existing) return;
+    const nextProgress = { ...progress, [current.id]: { ...existing, confidence } };
+    setProgress(nextProgress);
+    try { window.localStorage.setItem(storageKey, JSON.stringify(nextProgress)); } catch {}
   };
 
   const persistCustomFlashcards = (next: CustomFlashcard[]) => {
@@ -189,7 +286,7 @@ export default function StudyCompass() {
     const back = customBack.trim();
     if (!front || !back) { setCustomFlashcardError('Add both the front and the answer before saving your card.'); return; }
     const now = new Date().toISOString();
-    persistCustomFlashcards([...customFlashcards, { id: `my-card-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, track: examTrack, front, back, createdAt: now, dueAt: now, intervalDays: 0, reviewCount: 0 }]);
+    persistCustomFlashcards([...customFlashcards, { id: `my-card-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, track: examTrack, front, back, createdAt: now, dueAt: now, intervalDays: 0, reviewCount: 0, updatedAt: now }]);
     setCustomFront(''); setCustomBack('');
   };
   const reviewCustomFlashcard = (id: string, remembered: boolean) => {
@@ -198,11 +295,38 @@ export default function StudyCompass() {
       if (card.id !== id) return card;
       const intervalDays = remembered ? Math.min(card.intervalDays ? card.intervalDays * 2 : 1, 30) : 0;
       const waitMilliseconds = remembered ? intervalDays * 24 * 60 * 60 * 1000 : 10 * 60 * 1000;
-      return { ...card, intervalDays, reviewCount: card.reviewCount + 1, dueAt: new Date(reviewTime + waitMilliseconds).toISOString() };
+      return { ...card, intervalDays, reviewCount: card.reviewCount + 1, dueAt: new Date(reviewTime + waitMilliseconds).toISOString(), updatedAt: new Date(reviewTime).toISOString() };
     }));
     setFlipped(previous => { const next = new Set(previous); next.delete(id); return next; });
   };
-  const deleteCustomFlashcard = (id: string) => persistCustomFlashcards(customFlashcards.filter(card => card.id !== id));
+  const deleteCustomFlashcard = (id: string) => {
+    persistCustomFlashcards(customFlashcards.filter(card => card.id !== id));
+    setDeletedFlashcardIds(previous => {
+      const next = previous.includes(id) ? previous : [...previous, id];
+      try { window.localStorage.setItem(deletedFlashcardsKey, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const submitAccount = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get('email') || '').trim();
+    const password = String(form.get('password') || '');
+    const name = String(form.get('name') || '').trim();
+    setAccountError(''); setAccountLoading(true);
+    try {
+      if (accountMode === 'signup') await api('/auth/sign-up/email', { method: 'POST', body: JSON.stringify({ name, email, password }) });
+      else await api('/auth/sign-in/email', { method: 'POST', body: JSON.stringify({ email, password }) });
+      await loadCloudAccount();
+      setView('home');
+    } catch (error) { setAccountError(error instanceof Error ? error.message : 'Unable to sign in right now.'); }
+    finally { setAccountLoading(false); }
+  };
+  const signOut = async () => {
+    try { await api('/auth/sign-out', { method: 'POST', body: JSON.stringify({}) }); } catch {}
+    setAccountUser(null); setCloudReady(false); setCloudStatus('local'); navigate('home');
+  };
 
   const navigate = (next: View) => { setView(next); setSelected(null); setRevealed(false); };
   const closePepTalk = () => { setPepTalk(null); try { window.localStorage.setItem(pepTalkKey, 'seen'); } catch {} };
@@ -244,8 +368,19 @@ export default function StudyCompass() {
       <button className={`nav-link ${active === 'flashcards' ? 'active' : ''}`} onClick={() => navigate('flashcards')}>Flashcards</button>
       <button className={`nav-link ${active === 'rewards' ? 'active' : ''}`} onClick={() => navigate('rewards')}>Rewards</button>
       <button className={`nav-link ${active === 'resources' ? 'active' : ''}`} onClick={() => openTrack(examTrack)}>Library</button>
+      <button className={`nav-link ${active === 'account' ? 'active' : ''}`} onClick={() => navigate('account')}>{accountUser ? 'Account' : 'Sign in'}</button>
     </div>
   </header>;
+
+  if (view === 'account') return <main className="shell">{header('account')}<section className="custom-flashcard-panel" style={{ marginTop: 0 }}>
+    {accountUser ? <><div><p className="eyebrow">Cloud study space</p><h1 className="page-title">Hi, {accountUser.name || 'learner'}.</h1><p>Your flashcards, progress, rewards, and saved round are linked to this account.</p><p className="source-note">Sync status: <b>{cloudStatus === 'saved' ? 'Saved to your account' : cloudStatus === 'syncing' ? 'Saving…' : cloudStatus === 'pending' ? 'Saved on this device; waiting to sync' : 'Using this device only'}</b></p></div><div className="custom-flashcard-form"><p><b>{accountUser.email}</b></p><button className="primary" type="button" onClick={() => void syncCloud()} disabled={cloudStatus === 'syncing'}>Sync now</button><button className="secondary" type="button" onClick={() => void signOut()}>Sign out</button></div></> : <><div><p className="eyebrow">Keep your study safe</p><h1 className="page-title">Your cards,<br />wherever you study.</h1><p>Create an account to save flashcards, progress, XP, and your current round beyond this browser.</p></div><form className="custom-flashcard-form" onSubmit={submitAccount}>
+      <div className="track-toggle"><button type="button" className={accountMode === 'signin' ? 'selected' : ''} onClick={() => { setAccountMode('signin'); setAccountError(''); }}>Sign in</button><button type="button" className={accountMode === 'signup' ? 'selected' : ''} onClick={() => { setAccountMode('signup'); setAccountError(''); }}>Create account</button></div>
+      {accountMode === 'signup' && <><label htmlFor="account-name">Name</label><input id="account-name" name="name" required minLength={2} maxLength={80} /></>}
+      <label htmlFor="account-email">Email</label><input id="account-email" name="email" type="email" required autoComplete="email" />
+      <label htmlFor="account-password">Password <span>At least 12 characters</span></label><input id="account-password" name="password" type="password" required minLength={12} maxLength={128} autoComplete={accountMode === 'signin' ? 'current-password' : 'new-password'} />
+      <div className="custom-form-foot"><small>Your password is never stored in plain text.</small><button className="primary" type="submit" disabled={accountLoading}>{accountLoading ? 'Please wait…' : accountMode === 'signin' ? 'Sign in →' : 'Create my account →'}</button></div>{accountError && <p className="custom-card-error" role="alert">{accountError}</p>}
+    </form></>}
+  </section></main>;
 
   if (view === 'resources') return <main className="shell">{header('resources')}<section className="section" style={{ marginTop: 0 }}>
     <p className="eyebrow">Your study library</p><h1 className="page-title">Choose the exam first.<br />Then choose what helps.</h1>
@@ -277,7 +412,7 @@ export default function StudyCompass() {
   }
 
   if (view === 'flashcards') return <main className="shell">{header('flashcards')}<section className="custom-flashcard-panel" style={{ marginTop: 0 }}>
-    <div><p className="eyebrow">Your own little deck · {trackLabel}</p><h1 className="page-title">Make it yours,<br />one card at a time.</h1><p>Turn tricky notes, mnemonics, and “ohhh, that’s why” moments into private cards for this library.</p></div>
+    <div><p className="eyebrow">Your own little deck · {trackLabel}</p><h1 className="page-title">Make it yours,<br />one card at a time.</h1><p>Turn tricky notes, mnemonics, and “ohhh, that’s why” moments into private cards for this library.</p>{accountUser && <p className="source-note">Cloud sync: <b>{cloudStatus === 'saved' ? 'saved' : cloudStatus === 'syncing' ? 'saving…' : 'pending'}</b></p>}</div>
     <form className="custom-flashcard-form" onSubmit={addCustomFlashcard}>
       <label htmlFor="custom-card-front">Front of card <span>Question or cue</span></label><textarea id="custom-card-front" value={customFront} onChange={event => setCustomFront(event.target.value)} maxLength={500} placeholder="e.g. What is the priority before giving a new medication?" />
       <label htmlFor="custom-card-back">Back of card <span>Answer, explanation, or memory trick</span></label><textarea id="custom-card-back" value={customBack} onChange={event => setCustomBack(event.target.value)} maxLength={500} placeholder="e.g. Check the prescription, allergies, and patient identity first." />
@@ -306,14 +441,14 @@ export default function StudyCompass() {
       <p className="library-rule">One library is active at a time. Your countries never mix.</p>
       <div className="field"><label htmlFor="domain">Domain</label><select id="domain" value={domain} onChange={event => { const next = event.target.value as LibraryDomain | 'All domains'; setDomain(next); setTopic('All topics'); setMode('Fresh in selection'); }}><option>All domains</option>{activeDomains.map(item => <option key={item.name}>{item.name}</option>)}</select></div>
       <div className="field"><label htmlFor="topic">Topic</label><select id="topic" value={topic} onChange={event => { setTopic(event.target.value); setMode('Fresh in selection'); }}><option>All topics</option>{topics.map(item => <option key={item}>{item}</option>)}</select></div>
-      <div className="field"><label htmlFor="mode">Mode</label><select id="mode" value={mode} onChange={event => setMode(event.target.value as Mode)}><option>Random topics</option><option>Fresh in selection</option><option>All scenario forms</option><option>Review incorrect</option></select></div>
-      <p className="filter-note">Normal modes use each original core question once before a repeat. “All scenario forms” intentionally includes alternate situations for the same clinical concept. Your filter choices apply after you answer this question.</p>
+      <div className="field"><label htmlFor="mode">Mode</label><select id="mode" value={mode} onChange={event => setMode(event.target.value as Mode)}><option>Random topics</option><option>Fresh in selection</option><option>All scenario forms</option><option>Review incorrect</option><option>Weak spots rescue</option></select></div>
+      <p className="filter-note">Normal modes use each original core question once before a repeat. “All scenario forms” intentionally includes alternate situations for the same clinical concept. “Weak spots rescue” brings back missed, guessed, and unsure answers. Your filter choices apply after you answer this question.</p>
       <div className="progress-caption"><span>{summary.answered} answered</span><span>{activeQuestions.length} {examTrack} forms</span></div><div className="bar"><i style={{ width: `${percent}%` }} /></div></div>
     </aside>
     <section className="question-card"><div className="question-meta"><span className="tag">{current.track} · {current.domain}</span>{current.track === 'SNLE' && <span className="difficulty">{snleSetLabel}</span>}<span className="difficulty">{current.isAlternateForm ? 'ALTERNATE FORM' : `SCENARIO ${current.variantNumber + 1}`}</span></div>
       <h1 className="question-title">{current.stem}</h1><div className="answer-list">{current.choices.map((choice, index) => { const wrong = selected !== null && selected === index && index !== current.correctIndex; const correct = selected !== null && index === current.correctIndex && showRationale; return <button className={`answer-btn ${correct ? 'correct' : ''} ${wrong ? 'wrong' : ''}`} disabled={selected !== null} key={choice} onClick={() => saveAnswer(index)}><span className="letter">{letters[index]}</span><span>{choice}</span></button>; })}</div>
-      {selected !== null && <div className={`feedback ${selectedCorrect ? 'good' : 'bad'}`}><h3>{selectedCorrect ? 'Correct — keep the clinical priority.' : 'Not quite — pause before moving on.'}</h3>{showRationale ? <><p className="rationale"><strong>Rationale:</strong> {current.rationale}</p><p className="question-reference">Suggested study reference: <a href={domainReferences[current.domain].href} target="_blank" rel="noreferrer">{domainReferences[current.domain].title} ↗</a></p></> : <p>Select <strong>Reveal answer</strong> to see the correct option and rationale, or move to a new question.</p>}</div>}
-      <div className="study-actions"><p className="muted">{selected === null ? <>Pick an answer to unlock the next question.</> : <>Choose the <strong>one best answer</strong>. Your answer saves privately in this browser.</>}</p><div className="hero-buttons">{selected !== null && !selectedCorrect && !revealed && <button className="secondary" onClick={() => setRevealed(true)}>Reveal answer</button>}{selected !== null && <button className="primary" onClick={() => startQuestion()}>Next question →</button>}</div></div>
+      {selected !== null && <div className={`feedback ${selectedCorrect ? 'good' : 'bad'}`}><h3>{selectedCorrect ? 'Correct — keep the clinical priority.' : 'Not quite — pause before moving on.'}</h3>{showRationale ? <><p className="rationale"><strong>Rationale:</strong> {current.rationale}</p><p className="question-reference">Suggested study reference: <a href={domainReferences[current.domain].href} target="_blank" rel="noreferrer">{domainReferences[current.domain].title} ↗</a></p></> : <p>Select <strong>Reveal answer</strong> to see the correct option and rationale, or move to a new question.</p>}<div className="confidence-check"><span>How did that feel?</span><button className={progress[current.id]?.confidence === 'confident' ? 'selected' : ''} type="button" onClick={() => saveConfidence('confident')}>Confident</button><button className={progress[current.id]?.confidence === 'unsure' ? 'selected' : ''} type="button" onClick={() => saveConfidence('unsure')}>Unsure</button><button className={progress[current.id]?.confidence === 'guessed' ? 'selected' : ''} type="button" onClick={() => saveConfidence('guessed')}>Guessed</button></div></div>}
+      <div className="study-actions"><p className="muted">{selected === null ? <>Pick an answer to unlock the next question.</> : <>Your answer saves {accountUser ? 'to your account and this browser' : 'privately in this browser'}. Mark anything uncertain, then use <strong>Weak spots rescue</strong> for a focused second pass.</>}</p><div className="hero-buttons">{selected !== null && !selectedCorrect && !revealed && <button className="secondary" onClick={() => setRevealed(true)}>Reveal answer</button>}{selected !== null && <button className="primary" onClick={() => startQuestion()}>Next question →</button>}</div></div>
     </section>
   </div>{celebration && <div className="celebration-backdrop" role="dialog" aria-modal="true" aria-labelledby="reward-title"><article className="celebration-card"><span>{celebration.emoji}</span><p className="eyebrow">Reward unlocked · {current.track}</p><h2 id="reward-title">{celebration.title}</h2><p>{celebration.message}</p><div className="reward-score"><b>Level {level}</b><span>{player.xp} XP · {player.bestStreak} best streak</span></div><p className="share-note">Screenshot this little win and share it with your mentor or boss—no patient details, just your progress.</p><button className="primary" onClick={() => setCelebration(null)}>Keep playing →</button></article></div>}</main>;
 
