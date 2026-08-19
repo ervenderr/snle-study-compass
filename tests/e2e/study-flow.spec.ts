@@ -23,6 +23,19 @@ test('a guest lands on the welcome page and must sign in to study', async ({ pag
   await expect(page.getByRole('button', { name: 'Practice', exact: true })).toHaveCount(0);
 });
 
+test('invalid sign-in credentials show a clear form error instead of a raw 401', async ({ page }) => {
+  await page.route('**/api/auth/get-session', route => route.fulfill({ json: null }));
+  await page.route('**/api/auth/sign-in/email', route => route.fulfill({ status: 401, json: { code: 'INVALID_EMAIL_OR_PASSWORD', message: 'Unauthorized' } }));
+  await page.goto('/');
+  await page.getByRole('button', { name: /I already have an account/i }).click();
+  await page.getByLabel(/Email address/i).fill('learner@example.com');
+  await page.getByLabel(/^Password/i).fill('WrongPassword!2026');
+  await page.getByRole('button', { name: /Continue/i }).click();
+  await expect(page.locator('#account-error')).toHaveText('That email or password doesn’t match. Please try again.');
+  await expect(page.getByLabel(/Email address/i)).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByLabel(/^Password/i)).toHaveAttribute('aria-invalid', 'true');
+});
+
 test('a temporary cloud-sync failure does not sign out an authenticated learner', async ({ page }) => {
   await page.unroute('**/api/sync');
   await page.route('**/api/sync', route => route.fulfill({ status: 503, json: { error: 'Sync is temporarily unavailable.' } }));
