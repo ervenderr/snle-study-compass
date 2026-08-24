@@ -220,7 +220,7 @@ test('a completed focused set ends with a saved score summary instead of repeati
   await expect(page.getByRole('button', { name: /Review incorrect/i })).toBeVisible();
 });
 
-test('learner can make, review, retain, and keep private flashcards separated by library', async ({ page }) => {
+test('learner can make, review, retain, and find every private flashcard across libraries', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Flashcards', exact: true }).click();
   await page.getByLabel('Front of card').fill('What should I check before a first-dose medication?');
@@ -245,6 +245,12 @@ test('learner can make, review, retain, and keep private flashcards separated by
   await page.getByRole('button', { name: /PNLE · Philippines.*20 original/i }).click();
   await page.getByRole('button', { name: 'Flashcards' }).click();
   await expect(page.getByRole('button', { name: /Start my random deck/i })).toBeDisabled();
+  await page.getByRole('button', { name: 'View my deck' }).click();
+  await expect(page).toHaveURL(/\/flashcards\/my-deck$/);
+  await expect(page.getByText(/1 private card saved across your exam libraries/i)).toBeVisible();
+  await page.getByRole('button', { name: /Start my random deck/i }).click();
+  await expect(page).toHaveURL(/\/flashcards\/deck$/);
+  await expect(page.locator('.single-flashcard')).toContainText('What should I check before a first-dose medication?');
 });
 
 test('long custom flashcard text stays inside its card', async ({ page }) => {
