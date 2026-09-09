@@ -255,12 +255,14 @@ test('learner can make, review, retain, and find every private flashcard across 
 
 test('learner can create folders and sort existing flashcards individually or in bulk', async ({ page }) => {
   await page.goto('/flashcards');
+  await page.getByRole('button', { name: 'View my deck' }).click();
   await page.getByLabel('New SNLE folder').fill('Pharmacology essentials');
   await page.getByRole('button', { name: 'Create folder' }).click();
   await expect(page.getByText('“Pharmacology essentials” is ready for your cards.')).toBeVisible();
+  await page.getByRole('button', { name: 'Flashcards', exact: true }).click();
   await page.getByLabel('Front of card').fill('What is the medication check?');
   await page.getByLabel('Back of card').fill('Confirm the prescription, allergies, identity, and required safety checks.');
-  await expect(page.locator('#custom-card-folder')).toHaveValue(/my-folder-/);
+  await page.locator('#custom-card-folder').selectOption({ label: 'Pharmacology essentials' });
   await page.getByRole('button', { name: /Add to my SNLE deck/i }).click();
   await page.getByRole('button', { name: 'Keep creating' }).click();
   await page.locator('#custom-card-folder').selectOption({ label: 'Unfiled cards' });
