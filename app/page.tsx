@@ -407,13 +407,13 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
       setFolderError('');
     } catch { setFolderError('Your folder is here for this visit, but browser storage is full or unavailable.'); }
   };
-  const addFlashcardFolder = (event: FormEvent<HTMLFormElement>) => {
+  const addFlashcardFolder = (event: FormEvent<HTMLFormElement>, track = examTrack) => {
     event.preventDefault();
     const name = newFolderName.trim();
     if (!name) { setFolderError('Give your folder a name first.'); return; }
-    if (flashcardFolders.some(folder => folder.track === examTrack && folder.name.localeCompare(name, undefined, { sensitivity: 'accent' }) === 0)) { setFolderError('That folder already exists in this exam library.'); return; }
+    if (flashcardFolders.some(folder => folder.track === track && folder.name.localeCompare(name, undefined, { sensitivity: 'accent' }) === 0)) { setFolderError('That folder already exists in this exam library.'); return; }
     const now = new Date().toISOString();
-    const folder = { id: `my-folder-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, track: examTrack, name, createdAt: now, updatedAt: now };
+    const folder = { id: `my-folder-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, track, name, createdAt: now, updatedAt: now };
     persistFlashcardFolders([...flashcardFolders, folder]);
     setCustomFolderId(folder.id); setNewFolderName(''); setFolderActionMessage(`“${name}” is ready for your cards.`);
   };
@@ -437,7 +437,12 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
     setSelectedFlashcardIds([]);
     setFolderActionMessage(`${cardsToMove.length} card${cardsToMove.length === 1 ? '' : 's'} moved to ${folder ? `“${folder.name}”` : 'Unfiled cards'}.`);
   };
-  const toggleFlashcardSelection = (id: string) => setSelectedFlashcardIds(previous => previous.includes(id) ? previous.filter(item => item !== id) : [...previous, id]);
+  const toggleFlashcardSelection = (id: string) => {
+    const card = customFlashcards.find(item => item.id === id);
+    const selectedCard = customFlashcards.find(item => selectedFlashcardIds.includes(item.id));
+    if (card && selectedCard && card.track !== selectedCard.track && !selectedFlashcardIds.includes(id)) { setFolderActionMessage('Select cards from one exam library at a time so they can stay in the right folder.'); return; }
+    setSelectedFlashcardIds(previous => previous.includes(id) ? previous.filter(item => item !== id) : [...previous, id]);
+  };
   const reviewCustomFlashcard = (id: string, remembered: boolean) => {
     const reviewTime = Date.now();
     persistCustomFlashcards(customFlashcards.map(card => {
@@ -595,12 +600,15 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
   if (view === 'flashcardList') {
     const selectedCards = customFlashcards.filter(card => selectedFlashcardIds.includes(card.id));
     const selectedTrack = selectedCards.length && selectedCards.every(card => card.track === selectedCards[0].track) ? selectedCards[0].track : null;
+    const folderTargetTrack = selectedTrack || examTrack;
+    const targetTrackFolders = flashcardFolders.filter(folder => folder.track === folderTargetTrack).sort((left, right) => left.name.localeCompare(right.name));
+    const targetTrackCards = customFlashcards.filter(card => card.track === folderTargetTrack);
     const eligibleFolders = selectedTrack ? flashcardFolders.filter(folder => folder.track === selectedTrack).sort((left, right) => left.name.localeCompare(right.name)) : [];
     const unfiledCards = customFlashcards.filter(card => !card.folderId || !flashcardFolders.some(folder => folder.id === card.folderId));
     return <main className="shell">{header('flashcards')}<section className="section" style={{ marginTop: 0 }}>
       <button className="back-link" onClick={() => router.push('/flashcards')}>← Back to flashcards</button><p className="eyebrow">My complete deck</p><h1 className="page-title">Your saved<br />flashcards.</h1>
       <p className="hero-copy">{customFlashcards.length ? `${customFlashcards.length} private card${customFlashcards.length === 1 ? '' : 's'} saved across your exam libraries.` : 'No cards yet—make your first one whenever a note is worth keeping.'}</p>
-      <section className="folder-manager deck-folder-manager"><div className="section-head"><div><p className="eyebrow">A place for every topic</p><h2>Organize with folders</h2></div><p>Create folders for a subject, a weak spot, or a study week.</p></div><form className="folder-create-form" onSubmit={addFlashcardFolder}><label htmlFor="new-folder-name">New {examTrack} folder</label><div><input id="new-folder-name" value={newFolderName} onChange={event => setNewFolderName(event.target.value)} maxLength={60} placeholder="e.g. Pharmacology essentials" /><button className="secondary" type="submit">Create folder</button></div>{folderError && <p className="custom-card-error" role="alert">{folderError}</p>}</form>{currentTrackFolders.length > 0 && <div className="folder-chip-list">{currentTrackFolders.map(folder => <span key={folder.id}>📁 {folder.name} <b>{customCardsForTrack.filter(card => card.folderId === folder.id).length}</b></span>)}</div>}{folderActionMessage && <p className="folder-action-message" role="status">{folderActionMessage}</p>}</section>
+      <section className="folder-manager deck-folder-manager"><div className="section-head"><div><p className="eyebrow">A place for every topic</p><h2>Organize with folders</h2></div><p>Create folders for a subject, a weak spot, or a study week.</p></div><p className="folder-track-note">{selectedTrack ? `Your ${selectedCards.length} selected card${selectedCards.length === 1 ? '' : 's'} will be organized in the ${selectedTrack} library.` : `Folders stay in their exam library. Create a ${folderTargetTrack} folder, or select cards to organize their library.`}</p><form className="folder-create-form" onSubmit={event => addFlashcardFolder(event, folderTargetTrack)}><label htmlFor="new-folder-name">New {folderTargetTrack} folder</label><div><input id="new-folder-name" value={newFolderName} onChange={event => setNewFolderName(event.target.value)} maxLength={60} placeholder="e.g. Pharmacology essentials" /><button className="secondary" type="submit">Create folder</button></div>{folderError && <p className="custom-card-error" role="alert">{folderError}</p>}</form>{targetTrackFolders.length > 0 && <div className="folder-chip-list">{targetTrackFolders.map(folder => <span key={folder.id}>📁 {folder.name} <b>{targetTrackCards.filter(card => card.folderId === folder.id).length}</b></span>)}</div>}{folderActionMessage && <p className="folder-action-message" role="status">{folderActionMessage}</p>}</section>
       {customFlashcards.length > 0 && <><button className="primary" onClick={() => router.push('/flashcards/deck')}>Start my random deck →</button><div className="flashcard-bulk-actions" aria-label="Bulk folder actions"><span>{selectedCards.length ? `${selectedCards.length} selected` : 'Select cards to sort them'}</span><select aria-label="Move selected cards to a folder" defaultValue="" disabled={!selectedCards.length || !selectedTrack} onChange={event => { if (event.target.value) moveCustomFlashcards(selectedFlashcardIds, event.target.value === '__unfiled__' ? '' : event.target.value); event.currentTarget.value = ''; }}><option value="">Move selected to…</option><option value="__unfiled__">Unfiled cards</option>{eligibleFolders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select><button className="secondary" type="button" disabled={!selectedCards.length} onClick={() => moveCustomFlashcards(selectedFlashcardIds, '')}>Unfile selected</button></div></>}
       {flashcardFolders.length > 0 && <div className="folder-card-groups">{[...flashcardFolders].sort((left, right) => left.name.localeCompare(right.name)).map(folder => { const cards = customFlashcards.filter(card => card.folderId === folder.id); return <section className="folder-card-group" key={folder.id}><div className="folder-card-heading"><div><p className="eyebrow">{folder.track} folder</p><h2>📁 {folder.name}</h2></div><span>{cards.length} card{cards.length === 1 ? '' : 's'}</span></div>{cards.length ? <div className="flash-grid">{cards.map(renderCustomFlashcard)}</div> : <p className="empty">This folder is ready for its first card.</p>}</section>; })}</div>}
       {unfiledCards.length > 0 && <section className="folder-card-group unfiled-card-group"><div className="folder-card-heading"><div><p className="eyebrow">No folder yet</p><h2>Unfiled cards</h2></div><span>{unfiledCards.length} card{unfiledCards.length === 1 ? '' : 's'}</span></div><div className="flash-grid">{unfiledCards.map(renderCustomFlashcard)}</div></section>}
