@@ -270,6 +270,8 @@ test('learner can create folders and sort existing flashcards individually or in
   await page.getByLabel('Back of card').fill('Document administration, assessment findings, and any relevant patient response.');
   await page.getByRole('button', { name: /Add to my SNLE deck/i }).click();
   await page.getByLabel('Flashcard created').getByRole('button', { name: 'View my deck' }).click();
+  await expect(page.getByText('Choose a folder above to see its cards.')).toBeVisible();
+  await page.getByLabel('Open Pharmacology essentials folder').click();
   await expect(page.getByRole('heading', { name: /Pharmacology essentials/i })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Unfiled cards' })).toBeVisible();
   await page.getByLabel('Select What should I document after a medication?').check();
