@@ -53,6 +53,7 @@ db.exec(`
     due_at TEXT NOT NULL,
     interval_days INTEGER NOT NULL CHECK(interval_days >= 0 AND interval_days <= 30),
     review_count INTEGER NOT NULL CHECK(review_count >= 0),
+    folder_id TEXT,
     updated_at TEXT NOT NULL,
     deleted_at TEXT
   );
@@ -88,6 +89,19 @@ db.exec(`
   );
 `);
 
+if (!db.prepare('PRAGMA table_info(flashcards)').all().some(column => column.name === 'folder_id')) db.exec('ALTER TABLE flashcards ADD COLUMN folder_id TEXT');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS flashcard_folders (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+    track TEXT NOT NULL CHECK(track IN ('SNLE', 'PNLE', 'USRN')),
+    name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 60),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS flashcard_folders_user_updated_idx ON flashcard_folders(user_id, updated_at);
+`);
+
 const attempts = new Map();
 const rateLimit = (windowMs, maxAttempts) => async (c, next) => {
   const forwarded = c.req.header('x-forwarded-for') || 'unknown';
@@ -106,16 +120,21 @@ const validString = (value, limit) => typeof value === 'string' && value.length 
 const validIso = value => typeof value === 'string' && !Number.isNaN(Date.parse(value));
 
 function validCard(card) {
-  return card && validString(card.id, 128) && validTrack(card.track) && validString(card.front, 500) && validString(card.back, 500) && validIso(card.createdAt) && validIso(card.dueAt) && validIso(card.updatedAt) && Number.isInteger(card.intervalDays) && card.intervalDays >= 0 && card.intervalDays <= 30 && Number.isInteger(card.reviewCount) && card.reviewCount >= 0;
+  return card && validString(card.id, 128) && validTrack(card.track) && validString(card.front, 500) && validString(card.back, 500) && (card.folderId === undefined || card.folderId === null || validString(card.folderId, 128)) && validIso(card.createdAt) && validIso(card.dueAt) && validIso(card.updatedAt) && Number.isInteger(card.intervalDays) && card.intervalDays >= 0 && card.intervalDays <= 30 && Number.isInteger(card.reviewCount) && card.reviewCount >= 0;
+}
+function validFolder(folder) {
+  return folder && validString(folder.id, 128) && validTrack(folder.track) && typeof folder.name === 'string' && validString(folder.name.trim(), 60) && validIso(folder.createdAt) && validIso(folder.updatedAt);
 }
 
 function snapshot(userId) {
-  const cards = db.prepare('SELECT id, track, front, back, created_at AS createdAt, due_at AS dueAt, interval_days AS intervalDays, review_count AS reviewCount, updated_at AS updatedAt FROM flashcards WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at').all(userId);
+  const cards = db.prepare('SELECT id, track, front, back, folder_id AS folderId, created_at AS createdAt, due_at AS dueAt, interval_days AS intervalDays, review_count AS reviewCount, updated_at AS updatedAt FROM flashcards WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at').all(userId);
+  const folders = db.prepare('SELECT id, track, name, created_at AS createdAt, updated_at AS updatedAt FROM flashcard_folders WHERE user_id = ? ORDER BY created_at').all(userId);
   const progressRows = db.prepare('SELECT question_id AS questionId, correct, selected, answered_at AS answeredAt, alternate, confidence FROM study_records WHERE user_id = ?').all(userId);
   const playerRows = db.prepare('SELECT track, xp, streak, best_streak AS bestStreak, correct, unlocked_json AS unlockedJson, updated_at AS updatedAt FROM players WHERE user_id = ?').all(userId);
   const session = db.prepare('SELECT payload_json AS payloadJson FROM saved_sessions WHERE user_id = ?').get(userId);
   return {
     flashcards: cards,
+    folders,
     progress: Object.fromEntries(progressRows.map(row => [row.questionId, { correct: Boolean(row.correct), selected: row.selected, answeredAt: row.answeredAt, alternate: Boolean(row.alternate), confidence: row.confidence }])),
     players: Object.fromEntries(playerRows.map(row => [row.track, { xp: row.xp, streak: row.streak, bestStreak: row.bestStreak, correct: row.correct, unlocked: JSON.parse(row.unlockedJson), updatedAt: row.updatedAt }])),
     savedSession: session ? JSON.parse(session.payloadJson) : null,
@@ -143,16 +162,22 @@ app.get('/api/sync', c => c.json(snapshot(c.get('userId'))));
 app.put('/api/sync', async c => {
   const body = await c.req.json().catch(() => null);
   if (!body || !Array.isArray(body.flashcards) || !Array.isArray(body.deletedFlashcardIds) || typeof body.progress !== 'object' || !body.players || typeof body.players !== 'object') return c.json({ error: 'Invalid sync payload.' }, 400);
-  if (body.flashcards.length > 5000 || body.deletedFlashcardIds.length > 5000) return c.json({ error: 'Sync payload is too large.' }, 413);
-  if (!body.flashcards.every(validCard) || !body.deletedFlashcardIds.every(id => validString(id, 128))) return c.json({ error: 'Invalid flashcard data.' }, 400);
+  const folders = Array.isArray(body.folders) ? body.folders : [];
+  if (body.flashcards.length > 5000 || folders.length > 1000 || body.deletedFlashcardIds.length > 5000) return c.json({ error: 'Sync payload is too large.' }, 413);
+  if (!body.flashcards.every(validCard) || !folders.every(validFolder) || !body.deletedFlashcardIds.every(id => validString(id, 128))) return c.json({ error: 'Invalid flashcard data.' }, 400);
   const userId = c.get('userId');
-  const upsertCard = db.prepare(`INSERT INTO flashcards (id, user_id, track, front, back, created_at, due_at, interval_days, review_count, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL) ON CONFLICT(id) DO UPDATE SET track = excluded.track, front = excluded.front, back = excluded.back, due_at = excluded.due_at, interval_days = excluded.interval_days, review_count = excluded.review_count, updated_at = excluded.updated_at, deleted_at = NULL WHERE flashcards.user_id = excluded.user_id AND excluded.updated_at >= flashcards.updated_at`);
+  const knownFolders = new Map(db.prepare('SELECT id, track FROM flashcard_folders WHERE user_id = ?').all(userId).map(folder => [folder.id, folder.track]));
+  for (const folder of folders) knownFolders.set(folder.id, folder.track);
+  if (!body.flashcards.every(card => !card.folderId || knownFolders.get(card.folderId) === card.track)) return c.json({ error: 'Each card folder must belong to the same exam library.' }, 400);
+  const upsertFolder = db.prepare(`INSERT INTO flashcard_folders (id, user_id, track, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET track = excluded.track, name = excluded.name, updated_at = excluded.updated_at WHERE flashcard_folders.user_id = excluded.user_id AND excluded.updated_at >= flashcard_folders.updated_at`);
+  const upsertCard = db.prepare(`INSERT INTO flashcards (id, user_id, track, front, back, folder_id, created_at, due_at, interval_days, review_count, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL) ON CONFLICT(id) DO UPDATE SET track = excluded.track, front = excluded.front, back = excluded.back, folder_id = excluded.folder_id, due_at = excluded.due_at, interval_days = excluded.interval_days, review_count = excluded.review_count, updated_at = excluded.updated_at, deleted_at = NULL WHERE flashcards.user_id = excluded.user_id AND excluded.updated_at >= flashcards.updated_at`);
   const upsertProgress = db.prepare(`INSERT INTO study_records (user_id, question_id, correct, selected, answered_at, alternate, confidence) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, question_id) DO UPDATE SET correct = excluded.correct, selected = excluded.selected, answered_at = excluded.answered_at, alternate = excluded.alternate, confidence = excluded.confidence WHERE excluded.answered_at >= study_records.answered_at`);
   const upsertPlayer = db.prepare(`INSERT INTO players (user_id, track, xp, streak, best_streak, correct, unlocked_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, track) DO UPDATE SET xp = excluded.xp, streak = excluded.streak, best_streak = excluded.best_streak, correct = excluded.correct, unlocked_json = excluded.unlocked_json, updated_at = excluded.updated_at WHERE excluded.updated_at >= players.updated_at`);
   const saveSession = db.prepare(`INSERT INTO saved_sessions (user_id, payload_json, saved_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET payload_json = excluded.payload_json, saved_at = excluded.saved_at WHERE excluded.saved_at >= saved_sessions.saved_at`);
   const softDelete = db.prepare('UPDATE flashcards SET deleted_at = ?, updated_at = ? WHERE user_id = ? AND id = ?');
   db.transaction(() => {
-    for (const card of body.flashcards) upsertCard.run(card.id, userId, card.track, card.front, card.back, card.createdAt, card.dueAt, card.intervalDays, card.reviewCount, card.updatedAt);
+    for (const folder of folders) upsertFolder.run(folder.id, userId, folder.track, folder.name.trim(), folder.createdAt, folder.updatedAt);
+    for (const card of body.flashcards) upsertCard.run(card.id, userId, card.track, card.front, card.back, card.folderId || null, card.createdAt, card.dueAt, card.intervalDays, card.reviewCount, card.updatedAt);
     const now = new Date().toISOString();
     for (const id of body.deletedFlashcardIds) softDelete.run(now, now, userId, id);
     for (const [questionId, record] of Object.entries(body.progress)) {

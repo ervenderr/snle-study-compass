@@ -253,6 +253,36 @@ test('learner can make, review, retain, and find every private flashcard across 
   await expect(page.locator('.single-flashcard')).toContainText('What should I check before a first-dose medication?');
 });
 
+test('learner can create folders and sort existing flashcards individually or in bulk', async ({ page }) => {
+  await page.goto('/flashcards');
+  await page.getByLabel('New SNLE folder').fill('Pharmacology essentials');
+  await page.getByRole('button', { name: 'Create folder' }).click();
+  await expect(page.getByText('“Pharmacology essentials” is ready for your cards.')).toBeVisible();
+  await page.getByLabel('Front of card').fill('What is the medication check?');
+  await page.getByLabel('Back of card').fill('Confirm the prescription, allergies, identity, and required safety checks.');
+  await expect(page.locator('#custom-card-folder')).toHaveValue(/my-folder-/);
+  await page.getByRole('button', { name: /Add to my SNLE deck/i }).click();
+  await page.getByRole('button', { name: 'Keep creating' }).click();
+  await page.locator('#custom-card-folder').selectOption({ label: 'Unfiled cards' });
+  await page.getByLabel('Front of card').fill('What should I document after a medication?');
+  await page.getByLabel('Back of card').fill('Document administration, assessment findings, and any relevant patient response.');
+  await page.getByRole('button', { name: /Add to my SNLE deck/i }).click();
+  await page.getByLabel('Flashcard created').getByRole('button', { name: 'View my deck' }).click();
+  await expect(page.getByRole('heading', { name: /Pharmacology essentials/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Unfiled cards' })).toBeVisible();
+  await page.getByLabel('Select What should I document after a medication?').check();
+  await page.getByLabel('Move selected cards to a folder').selectOption({ label: 'Pharmacology essentials' });
+  await expect(page.getByText('2 cards', { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const cards = JSON.parse(localStorage.getItem('nurse-quest-custom-flashcards-v1') || '[]');
+    const folders = JSON.parse(localStorage.getItem('nurse-quest-flashcard-folders-v1') || '[]');
+    return cards.every((card: { folderId?: string }) => card.folderId === folders[0]?.id);
+  })).toBeTruthy();
+  await page.getByLabel('Move What is the medication check? to a folder').selectOption({ label: 'Unfiled cards' });
+  await expect(page.getByRole('heading', { name: 'Unfiled cards' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+});
+
 test('long custom flashcard text stays inside its card', async ({ page }) => {
   const longWord = 'clinicalpriorityassessment'.repeat(18);
   await page.goto('/');

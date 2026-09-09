@@ -14,9 +14,10 @@ type Progress = Record<string, StudyRecord>;
 type SavedSession = { current: Question; track: StudyTrack; questionSet?: QuestionSetId; domain: LibraryDomain | 'All domains'; topic: string; mode: Mode; selected: number[]; revealed: boolean; savedAt: string };
 type Player = { xp: number; streak: number; bestStreak: number; correct: number; unlocked: string[]; updatedAt: string };
 type Players = Record<StudyTrack, Player>;
-type CustomFlashcard = { id: string; track: StudyTrack; front: string; back: string; createdAt: string; dueAt: string; intervalDays: number; reviewCount: number; updatedAt: string };
+type FlashcardFolder = { id: string; track: StudyTrack; name: string; createdAt: string; updatedAt: string };
+type CustomFlashcard = { id: string; track: StudyTrack; front: string; back: string; folderId: string | null; createdAt: string; dueAt: string; intervalDays: number; reviewCount: number; updatedAt: string };
 type AccountUser = { id: string; name: string; email: string };
-type CloudSnapshot = { flashcards: CustomFlashcard[]; progress: Progress; players: Players; savedSession: SavedSession | null };
+type CloudSnapshot = { flashcards: CustomFlashcard[]; folders?: FlashcardFolder[]; progress: Progress; players: Players; savedSession: SavedSession | null };
 type CompletedRound = { track: StudyTrack; questionSet?: QuestionSetId; domain: LibraryDomain | 'All domains'; topic: string; mode: Mode };
 type Celebration = { title: string; message: string; emoji: string } | null;
 type PepTalk = { title: string; message: string; emoji: string } | null;
@@ -27,6 +28,7 @@ const sessionKey = 'snle-study-compass-session-v1';
 const playerKey = 'snle-study-compass-player-v1';
 const pepTalkKey = 'nurse-quest-pep-talk-v1';
 const customFlashcardsKey = 'nurse-quest-custom-flashcards-v1';
+const flashcardFoldersKey = 'nurse-quest-flashcard-folders-v1';
 const deletedFlashcardsKey = 'nurse-quest-deleted-flashcards-v1';
 const accountKey = 'nurse-quest-account-v1';
 const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
@@ -66,7 +68,17 @@ function loadCustomFlashcards(): CustomFlashcard[] {
       typeof card.id === 'string' && (card.track === 'SNLE' || card.track === 'PNLE' || card.track === 'USRN') &&
       typeof card.front === 'string' && typeof card.back === 'string' && typeof card.createdAt === 'string' &&
       typeof card.dueAt === 'string' && typeof card.intervalDays === 'number' && Number.isFinite(card.intervalDays) &&
-      typeof card.reviewCount === 'number' && Number.isFinite(card.reviewCount)).map(card => ({ ...card, updatedAt: typeof (card as Partial<CustomFlashcard>).updatedAt === 'string' ? (card as CustomFlashcard).updatedAt : card.createdAt }));
+      typeof card.reviewCount === 'number' && Number.isFinite(card.reviewCount)).map(card => ({ ...card, folderId: typeof (card as Partial<CustomFlashcard>).folderId === 'string' ? (card as CustomFlashcard).folderId : null, updatedAt: typeof (card as Partial<CustomFlashcard>).updatedAt === 'string' ? (card as CustomFlashcard).updatedAt : card.createdAt }));
+  } catch { return []; }
+}
+function loadFlashcardFolders(): FlashcardFolder[] {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(flashcardFoldersKey) || '[]') as unknown;
+    if (!Array.isArray(saved)) return [];
+    return saved.filter((folder): folder is FlashcardFolder => Boolean(folder) && typeof folder === 'object' &&
+      typeof folder.id === 'string' && (folder.track === 'SNLE' || folder.track === 'PNLE' || folder.track === 'USRN') &&
+      typeof folder.name === 'string' && folder.name.trim().length > 0 && folder.name.length <= 60 &&
+      typeof folder.createdAt === 'string' && typeof folder.updatedAt === 'string');
   } catch { return []; }
 }
 function loadDeletedFlashcards(): string[] { try { const saved = JSON.parse(window.localStorage.getItem(deletedFlashcardsKey) || '[]') as unknown; return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === 'string') : []; } catch { return []; } }
@@ -95,10 +107,16 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
   const [flashcardMode, setFlashcardMode] = useState<'clinical' | 'custom'>('clinical');
   const [currentFlashcard, setCurrentFlashcard] = useState<Question | CustomFlashcard | null>(null);
   const [customFlashcards, setCustomFlashcards] = useState<CustomFlashcard[]>([]);
+  const [flashcardFolders, setFlashcardFolders] = useState<FlashcardFolder[]>([]);
   const [deletedFlashcardIds, setDeletedFlashcardIds] = useState<string[]>([]);
   const [customFront, setCustomFront] = useState('');
   const [customBack, setCustomBack] = useState('');
+  const [customFolderId, setCustomFolderId] = useState('');
+  const [newFolderName, setNewFolderName] = useState('');
+  const [selectedFlashcardIds, setSelectedFlashcardIds] = useState<string[]>([]);
   const [customFlashcardError, setCustomFlashcardError] = useState('');
+  const [folderError, setFolderError] = useState('');
+  const [folderActionMessage, setFolderActionMessage] = useState('');
   const [flashcardSuccess, setFlashcardSuccess] = useState<string | null>(null);
   const [savedSession, setSavedSession] = useState<SavedSession | null>(null);
   const [storageLoaded, setStorageLoaded] = useState(false);
@@ -166,6 +184,16 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
       try { window.localStorage.setItem(customFlashcardsKey, JSON.stringify(next)); } catch {}
       return next;
     });
+    setFlashcardFolders(local => {
+      const merged = new Map(local.map(folder => [folder.id, folder]));
+      for (const remote of snapshot.folders || []) {
+        const localFolder = merged.get(remote.id);
+        if (!localFolder || new Date(remote.updatedAt).getTime() >= new Date(localFolder.updatedAt).getTime()) merged.set(remote.id, remote);
+      }
+      const next = [...merged.values()];
+      try { window.localStorage.setItem(flashcardFoldersKey, JSON.stringify(next)); } catch {}
+      return next;
+    });
     if (snapshot.savedSession) setSavedSession(local => !local || new Date(snapshot.savedSession!.savedAt).getTime() >= new Date(local.savedAt).getTime() ? snapshot.savedSession : local);
   }, [deletedFlashcardIds]);
 
@@ -200,13 +228,13 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
     if (!accountUser || !cloudReady) return;
     setCloudStatus('syncing');
     try {
-      const snapshot = await api<CloudSnapshot>('/sync', { method: 'PUT', body: JSON.stringify({ flashcards: customFlashcards, deletedFlashcardIds, progress, players, savedSession }) });
+      const snapshot = await api<CloudSnapshot>('/sync', { method: 'PUT', body: JSON.stringify({ flashcards: customFlashcards, folders: flashcardFolders, deletedFlashcardIds, progress, players, savedSession }) });
       applyCloudSnapshot(snapshot);
       setDeletedFlashcardIds([]);
       try { window.localStorage.removeItem(deletedFlashcardsKey); } catch {}
       setCloudStatus('saved');
     } catch { setCloudStatus('pending'); }
-  }, [accountUser, applyCloudSnapshot, cloudReady, customFlashcards, deletedFlashcardIds, players, progress, savedSession]);
+  }, [accountUser, applyCloudSnapshot, cloudReady, customFlashcards, deletedFlashcardIds, flashcardFolders, players, progress, savedSession]);
 
   useEffect(() => {
     setProgress(loadProgress());
@@ -219,6 +247,7 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
     }
     setPlayers(loadPlayers());
     setCustomFlashcards(loadCustomFlashcards());
+    setFlashcardFolders(loadFlashcardFolders());
     setDeletedFlashcardIds(loadDeletedFlashcards());
     setStorageLoaded(true);
   }, []);
@@ -229,7 +258,7 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
     if (!cloudReady) return;
     const timer = window.setTimeout(() => { void syncCloud(); }, 800);
     return () => window.clearTimeout(timer);
-  }, [cloudReady, customFlashcards, deletedFlashcardIds, players, progress, savedSession, syncCloud]);
+  }, [cloudReady, customFlashcards, deletedFlashcardIds, flashcardFolders, players, progress, savedSession, syncCloud]);
 
   useEffect(() => {
     if (!storageLoaded || window.localStorage.getItem(pepTalkKey)) return;
@@ -371,15 +400,44 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
       setCustomFlashcardError('');
     } catch { setCustomFlashcardError('Your card is here for this visit, but browser storage is full or unavailable.'); }
   };
+  const persistFlashcardFolders = (next: FlashcardFolder[]) => {
+    setFlashcardFolders(next);
+    try {
+      window.localStorage.setItem(flashcardFoldersKey, JSON.stringify(next));
+      setFolderError('');
+    } catch { setFolderError('Your folder is here for this visit, but browser storage is full or unavailable.'); }
+  };
+  const addFlashcardFolder = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = newFolderName.trim();
+    if (!name) { setFolderError('Give your folder a name first.'); return; }
+    if (flashcardFolders.some(folder => folder.track === examTrack && folder.name.localeCompare(name, undefined, { sensitivity: 'accent' }) === 0)) { setFolderError('That folder already exists in this exam library.'); return; }
+    const now = new Date().toISOString();
+    const folder = { id: `my-folder-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, track: examTrack, name, createdAt: now, updatedAt: now };
+    persistFlashcardFolders([...flashcardFolders, folder]);
+    setCustomFolderId(folder.id); setNewFolderName(''); setFolderActionMessage(`“${name}” is ready for your cards.`);
+  };
   const addCustomFlashcard = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const front = customFront.trim();
     const back = customBack.trim();
     if (!front || !back) { setCustomFlashcardError('Add both the front and the answer before saving your card.'); return; }
     const now = new Date().toISOString();
-    persistCustomFlashcards([...customFlashcards, { id: `my-card-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, track: examTrack, front, back, createdAt: now, dueAt: now, intervalDays: 0, reviewCount: 0, updatedAt: now }]);
+    const folderId = flashcardFolders.some(folder => folder.id === customFolderId && folder.track === examTrack) ? customFolderId : null;
+    persistCustomFlashcards([...customFlashcards, { id: `my-card-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, track: examTrack, front, back, folderId, createdAt: now, dueAt: now, intervalDays: 0, reviewCount: 0, updatedAt: now }]);
     setCustomFront(''); setCustomBack(''); setFlashcardSuccess(front);
   };
+  const moveCustomFlashcards = (ids: string[], folderId: string) => {
+    const destination = folderId || null;
+    const folder = destination ? flashcardFolders.find(item => item.id === destination) : null;
+    const cardsToMove = customFlashcards.filter(card => ids.includes(card.id) && (!folder || card.track === folder.track));
+    if (!cardsToMove.length) { setFolderActionMessage('Choose cards from the same exam library as the folder.'); return; }
+    const now = new Date().toISOString();
+    persistCustomFlashcards(customFlashcards.map(card => cardsToMove.some(item => item.id === card.id) ? { ...card, folderId: destination, updatedAt: now } : card));
+    setSelectedFlashcardIds([]);
+    setFolderActionMessage(`${cardsToMove.length} card${cardsToMove.length === 1 ? '' : 's'} moved to ${folder ? `“${folder.name}”` : 'Unfiled cards'}.`);
+  };
+  const toggleFlashcardSelection = (id: string) => setSelectedFlashcardIds(previous => previous.includes(id) ? previous.filter(item => item !== id) : [...previous, id]);
   const reviewCustomFlashcard = (id: string, remembered: boolean) => {
     const reviewTime = Date.now();
     persistCustomFlashcards(customFlashcards.map(card => {
@@ -440,6 +498,7 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
   const showRationale = selectedCorrect || revealed;
   const flashcards = activeQuestions.filter(question => question.variantNumber === 0 && (domain === 'All domains' || question.domain === domain));
   const customCardsForTrack = customFlashcards.filter(card => card.track === examTrack);
+  const currentTrackFolders = flashcardFolders.filter(folder => folder.track === examTrack).sort((left, right) => left.name.localeCompare(right.name));
   const dueCustomCards = customCardsForTrack.filter(card => new Date(card.dueAt).getTime() <= Date.now());
   const allDueCustomCards = customFlashcards.filter(card => new Date(card.dueAt).getTime() <= Date.now());
   const flashcardPool = (nextMode = flashcardMode): Array<Question | CustomFlashcard> => nextMode === 'custom' ? (allDueCustomCards.length ? allDueCustomCards : customFlashcards) : flashcards;
@@ -463,6 +522,13 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
   const continueCompletedRound = (nextMode: Mode) => {
     if (!completedRound) return;
     setMode(nextMode); setView('study'); startQuestion(completedRound.track, completedRound.domain, completedRound.topic, nextMode, completedRound.questionSet);
+  };
+  const renderCustomFlashcard = (card: CustomFlashcard) => {
+    const cardFolders = flashcardFolders.filter(folder => folder.track === card.track).sort((left, right) => left.name.localeCompare(right.name));
+    return <article className="flashcard saved-flashcard" key={card.id}>
+      <div className="flashcard-card-tools"><label className="card-select"><input type="checkbox" checked={selectedFlashcardIds.includes(card.id)} onChange={() => toggleFlashcardSelection(card.id)} aria-label={`Select ${card.front}`} /><span>Select</span></label><label className="card-folder-select">Folder<select aria-label={`Move ${card.front} to a folder`} value={card.folderId || ''} onChange={event => moveCustomFlashcards([card.id], event.target.value)}><option value="">Unfiled cards</option>{cardFolders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label></div>
+      <span className="front">My {card.track} card</span><h3>{card.front}</h3><p>{card.back}</p><button className="reset" onClick={() => deleteCustomFlashcard(card.id)}>Delete card</button>
+    </article>;
   };
 
   const header = (active: View) => <header className="nav">
@@ -526,17 +592,31 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
 
   if (view === 'flashcardStudy') return <main className="shell"><section className="auth-loading"><span className="mark">N</span><p>Opening your deck…</p></section></main>;
 
-  if (view === 'flashcardList') return <main className="shell">{header('flashcards')}<section className="section" style={{ marginTop: 0 }}><button className="back-link" onClick={() => router.push('/flashcards')}>← Back to flashcards</button><p className="eyebrow">My complete deck</p><h1 className="page-title">Your saved<br />flashcards.</h1><p className="hero-copy">{customFlashcards.length ? `${customFlashcards.length} private card${customFlashcards.length === 1 ? '' : 's'} saved across your exam libraries.` : 'No cards yet—make your first one whenever a note is worth keeping.'}</p>{customFlashcards.length > 0 && <button className="primary" onClick={() => router.push('/flashcards/deck')}>Start my random deck →</button>}<div className="flash-grid" style={{ marginTop: 25 }}>{customFlashcards.map(card => <article className="flashcard" key={card.id}><span className="front">My {card.track} card</span><h3>{card.front}</h3><p>{card.back}</p><button className="reset" onClick={() => deleteCustomFlashcard(card.id)}>Delete card</button></article>)}</div></section></main>;
+  if (view === 'flashcardList') {
+    const selectedCards = customFlashcards.filter(card => selectedFlashcardIds.includes(card.id));
+    const selectedTrack = selectedCards.length && selectedCards.every(card => card.track === selectedCards[0].track) ? selectedCards[0].track : null;
+    const eligibleFolders = selectedTrack ? flashcardFolders.filter(folder => folder.track === selectedTrack).sort((left, right) => left.name.localeCompare(right.name)) : [];
+    const unfiledCards = customFlashcards.filter(card => !card.folderId || !flashcardFolders.some(folder => folder.id === card.folderId));
+    return <main className="shell">{header('flashcards')}<section className="section" style={{ marginTop: 0 }}>
+      <button className="back-link" onClick={() => router.push('/flashcards')}>← Back to flashcards</button><p className="eyebrow">My complete deck</p><h1 className="page-title">Your saved<br />flashcards.</h1>
+      <p className="hero-copy">{customFlashcards.length ? `${customFlashcards.length} private card${customFlashcards.length === 1 ? '' : 's'} saved across your exam libraries.` : 'No cards yet—make your first one whenever a note is worth keeping.'}</p>
+      {customFlashcards.length > 0 && <><button className="primary" onClick={() => router.push('/flashcards/deck')}>Start my random deck →</button><div className="flashcard-bulk-actions" aria-label="Bulk folder actions"><span>{selectedCards.length ? `${selectedCards.length} selected` : 'Select cards to sort them'}</span><select aria-label="Move selected cards to a folder" defaultValue="" disabled={!selectedCards.length || !selectedTrack} onChange={event => { if (event.target.value) moveCustomFlashcards(selectedFlashcardIds, event.target.value === '__unfiled__' ? '' : event.target.value); event.currentTarget.value = ''; }}><option value="">Move selected to…</option><option value="__unfiled__">Unfiled cards</option>{eligibleFolders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select><button className="secondary" type="button" disabled={!selectedCards.length} onClick={() => moveCustomFlashcards(selectedFlashcardIds, '')}>Unfile selected</button></div></>}
+      {folderActionMessage && <p className="folder-action-message" role="status">{folderActionMessage}</p>}
+      {flashcardFolders.length > 0 && <div className="folder-card-groups">{[...flashcardFolders].sort((left, right) => left.name.localeCompare(right.name)).map(folder => { const cards = customFlashcards.filter(card => card.folderId === folder.id); return <section className="folder-card-group" key={folder.id}><div className="folder-card-heading"><div><p className="eyebrow">{folder.track} folder</p><h2>📁 {folder.name}</h2></div><span>{cards.length} card{cards.length === 1 ? '' : 's'}</span></div>{cards.length ? <div className="flash-grid">{cards.map(renderCustomFlashcard)}</div> : <p className="empty">This folder is ready for its first card.</p>}</section>; })}</div>}
+      {unfiledCards.length > 0 && <section className="folder-card-group unfiled-card-group"><div className="folder-card-heading"><div><p className="eyebrow">No folder yet</p><h2>Unfiled cards</h2></div><span>{unfiledCards.length} card{unfiledCards.length === 1 ? '' : 's'}</span></div><div className="flash-grid">{unfiledCards.map(renderCustomFlashcard)}</div></section>}
+    </section></main>;
+  }
 
   if (view === 'flashcards') return <main className="shell">{header('flashcards')}{flashcardSuccess && <aside className="celebration-backdrop" role="dialog" aria-label="Flashcard created"><div className="celebration-card"><span>📝</span><p className="eyebrow">Flashcard created</p><h2>Saved to your deck.</h2><p>{flashcardSuccess}</p><div className="hero-buttons"><button className="primary" onClick={() => router.push('/flashcards/my-deck')}>View my deck</button><button className="secondary" onClick={() => setFlashcardSuccess(null)}>Keep creating</button></div></div></aside>}<section className="custom-flashcard-panel" style={{ marginTop: 0 }}>
     <div><p className="eyebrow">Your own little deck · {trackLabel}</p><h1 className="page-title">Make it yours,<br />one card at a time.</h1><p>Turn tricky notes, mnemonics, and “ohhh, that’s why” moments into private cards for this library.</p>{accountUser && <p className="source-note">Cloud sync: <b>{cloudStatus === 'saved' ? 'saved' : cloudStatus === 'syncing' ? 'saving…' : 'pending'}</b></p>}</div>
     <form className="custom-flashcard-form" onSubmit={addCustomFlashcard}>
       <label htmlFor="custom-card-front">Front of card <span>Question or cue</span></label><textarea id="custom-card-front" value={customFront} onChange={event => setCustomFront(event.target.value)} maxLength={500} placeholder="e.g. What is the priority before giving a new medication?" />
       <label htmlFor="custom-card-back">Back of card <span>Answer, explanation, or memory trick</span></label><textarea id="custom-card-back" value={customBack} onChange={event => setCustomBack(event.target.value)} maxLength={500} placeholder="e.g. Check the prescription, allergies, and patient identity first." />
+      <label htmlFor="custom-card-folder">Folder <span>Optional—leave unfiled or choose a folder</span></label><select id="custom-card-folder" value={currentTrackFolders.some(folder => folder.id === customFolderId) ? customFolderId : ''} onChange={event => setCustomFolderId(event.target.value)}><option value="">Unfiled cards</option>{currentTrackFolders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select>
       <div className="custom-form-foot"><small>Stays privately in this browser · {customFront.length + customBack.length}/1000</small><button className="primary" type="submit">Add to my {examTrack} deck →</button></div>
       {customFlashcardError && <p className="custom-card-error" role="alert">{customFlashcardError}</p>}
     </form>
-  </section><section className="section flashcard-launch-section">
+  </section><section className="section folder-manager"><div className="section-head"><div><p className="eyebrow">A place for every topic</p><h2>Organize with folders</h2></div><p>Create folders for a subject, a weak spot, or a study week.</p></div><form className="folder-create-form" onSubmit={addFlashcardFolder}><label htmlFor="new-folder-name">New {examTrack} folder</label><div><input id="new-folder-name" value={newFolderName} onChange={event => setNewFolderName(event.target.value)} maxLength={60} placeholder="e.g. Pharmacology essentials" /><button className="secondary" type="submit">Create folder</button></div>{folderError && <p className="custom-card-error" role="alert">{folderError}</p>}</form>{currentTrackFolders.length > 0 && <div className="folder-chip-list">{currentTrackFolders.map(folder => <span key={folder.id}>📁 {folder.name} <b>{customCardsForTrack.filter(card => card.folderId === folder.id).length}</b></span>)}</div>}{folderActionMessage && <p className="folder-action-message" role="status">{folderActionMessage}</p>}</section><section className="section flashcard-launch-section">
     <div className="section-head"><div><p className="eyebrow">Ready when she is</p><h2>Choose a little deck</h2></div><button className="secondary" onClick={() => router.push('/flashcards/my-deck')}>View my deck</button></div>
     <div className="flashcard-launch-grid"><article><span>📝</span><p className="eyebrow">My {examTrack} cards</p><h3>Her own notes, made memorable.</h3><p>{customCardsForTrack.length ? `${dueCustomCards.length} due now · ${customCardsForTrack.length} saved` : 'Make a card above, then come back for a mini review.'}</p><button className="primary" disabled={!customCardsForTrack.length} onClick={() => startFlashcardRound('custom')}>Start my random deck →</button></article><article><span>✨</span><p className="eyebrow">Clinical anchors</p><h3>Practice built-in nursing cards.</h3><p>Choose a domain if she wants, then get one randomized card at a time.</p><div className="field"><label htmlFor="flash-domain">Focus domain</label><select id="flash-domain" value={domain} onChange={event => setDomain(event.target.value as LibraryDomain | 'All domains')}><option>All domains</option>{activeDomains.map(item => <option key={item.name}>{item.name}</option>)}</select></div><button className="primary" onClick={() => startFlashcardRound('clinical')}>Start random clinical card →</button></article></div>
   </section></main>;
