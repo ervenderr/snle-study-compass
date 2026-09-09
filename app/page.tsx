@@ -179,7 +179,9 @@ export default function StudyCompass({ initialView = 'landing', initialTrack = '
       const merged = new Map(local.map(card => [card.id, card]));
       for (const remote of snapshot.flashcards || []) {
         const localCard = merged.get(remote.id);
-        if (!localCard || new Date(remote.updatedAt).getTime() >= new Date(localCard.updatedAt).getTime()) merged.set(remote.id, remote);
+        const hasFolderId = Object.prototype.hasOwnProperty.call(remote, 'folderId');
+        const syncedCard = hasFolderId ? remote : { ...remote, folderId: localCard?.folderId ?? null };
+        if (!localCard || new Date(syncedCard.updatedAt).getTime() >= new Date(localCard.updatedAt).getTime()) merged.set(syncedCard.id, syncedCard);
       }
       const next = [...merged.values()].filter(card => !deletedFlashcardIds.includes(card.id));
       try { window.localStorage.setItem(customFlashcardsKey, JSON.stringify(next)); } catch {}

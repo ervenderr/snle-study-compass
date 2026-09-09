@@ -254,6 +254,12 @@ test('learner can make, review, retain, and find every private flashcard across 
 });
 
 test('learner can create folders and sort existing flashcards individually or in bulk', async ({ page }) => {
+  await page.unroute('**/api/sync');
+  await page.route('**/api/sync', route => {
+    if (route.request().method() !== 'PUT') return route.fulfill({ json: { flashcards: [], progress: {}, players: {}, savedSession: null } });
+    const body = route.request().postDataJSON() as { flashcards: Array<Record<string, unknown>> };
+    return route.fulfill({ json: { flashcards: body.flashcards.map(({ folderId: _folderId, ...card }) => card), progress: {}, players: {}, savedSession: null } });
+  });
   await page.goto('/flashcards');
   await page.getByRole('button', { name: 'View my deck' }).click();
   await page.getByLabel('New SNLE folder').fill('Pharmacology essentials');
@@ -274,6 +280,12 @@ test('learner can create folders and sort existing flashcards individually or in
   await expect(page.getByRole('heading', { name: 'Unfiled cards' })).toBeVisible();
   await page.getByLabel('Select What should I document after a medication?').check();
   await page.getByLabel('Move selected cards to a folder').selectOption({ label: 'Pharmacology essentials' });
+  await expect.poll(() => page.evaluate(() => {
+    const cards = JSON.parse(localStorage.getItem('nurse-quest-custom-flashcards-v1') || '[]');
+    const folders = JSON.parse(localStorage.getItem('nurse-quest-flashcard-folders-v1') || '[]');
+    return cards.every((card: { folderId?: string }) => card.folderId === folders[0]?.id);
+  })).toBeTruthy();
+  await page.waitForTimeout(1000);
   await expect.poll(() => page.evaluate(() => {
     const cards = JSON.parse(localStorage.getItem('nurse-quest-custom-flashcards-v1') || '[]');
     const folders = JSON.parse(localStorage.getItem('nurse-quest-flashcard-folders-v1') || '[]');
